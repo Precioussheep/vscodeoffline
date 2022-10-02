@@ -1,0 +1,32 @@
+[project]
+name = "vscoffline"
+version = "0.0.0"
+description = "A VSCode Binary & Extension Mirroring & Rehosting tool"
+license = {file = "LICENSE.txt"}
+readme = "README.md"
+requires-python = ">=3.7"
+
+dependencies = [
+    "logzero",
+    "requests",
+    "pytimeparse"
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "falcon",
+    "gunicorn",
+    "watchdog",
+]
+server = [
+    "falcon",
+    "gunicorn",
+    "watchdog",
+]
+
+[build-system]
+requires = [
+    "setuptools>=61.0",
+]
+build-backend = "setuptools.build_meta"

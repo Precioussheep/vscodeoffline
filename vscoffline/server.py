@@ -1,23 +1,28 @@
-import os, sys, time, json, glob
+import glob
+import os
+import sys
+import time
+from threading import Event, Thread
+from wsgiref import simple_server
+
 import falcon
 from logzero import logger as log
-from wsgiref import simple_server
-from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
-from threading import Event, Thread
-import vsc
+from watchdog.observers.polling import PollingObserver
+
+import vscoffline.utils as utils
 
 
 class VSCUpdater(object):
 
     def on_get(self, req, resp, platform, buildquality, commitid):
-        updatedir = os.path.join(vsc.ARTIFACTS_INSTALLERS, platform, buildquality)
+        updatedir = os.path.join(utils.ARTIFACTS_INSTALLERS, platform, buildquality)
         if not os.path.exists(updatedir):
             log.warning(f'Update build directory does not exist at {updatedir}. Check sync or sync configuration.')
             resp.status = falcon.HTTP_500
             return
         latestpath = os.path.join(updatedir, 'latest.json')
-        latest = vsc.Utility.load_json(latestpath)
+        latest = utils.Utility.load_json(latestpath)
         if not latest:
             resp.content = 'Unable to load latest.json'
             log.warning(f'Unable to load latest.json for platform {platform} and buildquality {buildquality}')
@@ -30,19 +35,19 @@ class VSCUpdater(object):
             return
         name = latest['name']
         updateglob = os.path.join(updatedir, f'vscode-{name}.*')
-        updatepath = vsc.Utility.first_file(updateglob)
+        updatepath = utils.Utility.first_file(updateglob)
         if not updatepath:
             resp.content = 'Unable to find update payload'
             log.warning(f'Unable to find update payload from {updateglob}')
             resp.status = falcon.HTTP_404
             return
-        if not vsc.Utility.hash_file_and_check(updatepath, latest['sha256hash']):
+        if not utils.Utility.hash_file_and_check(updatepath, latest['sha256hash']):
             resp.content = 'Update payload hash mismatch'
             log.warning(f'Update payload hash mismatch {updatepath}')
             resp.status = falcon.HTTP_403
             return
         # Url to get update
-        latest['url'] = vsc.URLROOT + updatepath
+        latest['url'] = utils.URLROOT + updatepath
         log.debug(f'Client {platform}, Quality {buildquality}. Providing update {updatepath}')
         resp.status = falcon.HTTP_200
         resp.media = latest
@@ -50,13 +55,13 @@ class VSCUpdater(object):
 class VSCBinaryFromCommitId(object):
 
     def on_get(self, req, resp, commitid, platform, buildquality):
-        updatedir = os.path.join(vsc.ARTIFACTS_INSTALLERS, platform, buildquality)
+        updatedir = os.path.join(utils.ARTIFACTS_INSTALLERS, platform, buildquality)
         if not os.path.exists(updatedir):
             log.warning(f'Update build directory does not exist at {updatedir}. Check sync or sync configuration.')
             resp.status = falcon.HTTP_500
             return
         jsonpath = os.path.join(updatedir, f'{commitid}.json')
-        updatejson = vsc.Utility.load_json(jsonpath)
+        updatejson = utils.Utility.load_json(jsonpath)
         if not updatejson:
             resp.content = f'Unable to load {jsonpath}'
             log.warning(resp.content)
@@ -64,41 +69,41 @@ class VSCBinaryFromCommitId(object):
             return
         name = updatejson['name']
         updateglob = os.path.join(updatedir, f'vscode-{name}.*')
-        updatepath = vsc.Utility.first_file(updateglob)
+        updatepath = utils.Utility.first_file(updateglob)
         if not updatepath:
             resp.content = f'Unable to find update payload from {updateglob}'
             log.warning(resp.content)
             resp.status = falcon.HTTP_404
             return
-        if not vsc.Utility.hash_file_and_check(updatepath, updatejson['sha256hash']):
+        if not utils.Utility.hash_file_and_check(updatepath, updatejson['sha256hash']):
             resp.content = f'Update payload hash mismatch {updatepath}'
             log.warning(resp.content)
             resp.status = falcon.HTTP_403
             return
         # Url for the client to fetch the update
-        resp.set_header('Location', vsc.URLROOT + updatepath)
+        resp.set_header('Location', utils.URLROOT + updatepath)
         resp.status = falcon.HTTP_302
 
 class VSCRecommendations(object):
 
     def on_get(self, req, resp):
-        if not os.path.exists(vsc.ARTIFACT_RECOMMENDATION):
+        if not os.path.exists(utils.ARTIFACT_RECOMMENDATION):
             resp.status = falcon.HTTP_404
             return
         resp.status = falcon.HTTP_200
         resp.content_type = 'application/octet-stream'
-        with open(vsc.ARTIFACT_RECOMMENDATION, 'r') as f:
+        with open(utils.ARTIFACT_RECOMMENDATION, 'r') as f:
             resp.body = f.read()
 
 class VSCMalicious(object):
 
     def on_get(self, req, resp):
-        if not os.path.exists(vsc.ARTIFACT_MALICIOUS):
+        if not os.path.exists(utils.ARTIFACT_MALICIOUS):
             resp.status = falcon.HTTP_404
             return
         resp.status = falcon.HTTP_200
         resp.content_type = 'application/octet-stream'
-        with open(vsc.ARTIFACT_MALICIOUS, 'r') as f:
+        with open(utils.ARTIFACT_MALICIOUS, 'r') as f:
             resp.body = f.read()
 
 class VSCGallery(object):
@@ -113,11 +118,11 @@ class VSCGallery(object):
 
     def update_state(self):
         # Load each extension
-        for extensiondir in glob.glob(vsc.ARTIFACTS_EXTENSIONS + '/*/'):
+        for extensiondir in glob.glob(utils.ARTIFACTS_EXTENSIONS + '/*/'):
 
             # Load the latest version of each extension
             latestpath = os.path.join(extensiondir, 'latest.json')
-            latest = vsc.Utility.load_json(latestpath)
+            latest = utils.Utility.load_json(latestpath)
 
             if not latest:
                 log.debug(f'Tried to load invalid manifest json {latestpath}')
@@ -135,7 +140,7 @@ class VSCGallery(object):
             # Find other versions
             for versionpath in glob.glob(extensiondir + '/*/extension.json'):
                 #log.info(f'Version path: {versionpath}')
-                vers = vsc.Utility.load_json(versionpath)
+                vers = utils.Utility.load_json(versionpath)
                 if not vers:
                     log.debug(f'Tried to load invalid version manifest json {versionpath}')
                     continue
@@ -164,9 +169,9 @@ class VSCGallery(object):
             for version in extension["versions"]:
                 if "targetPlatform" in version:
                     targetPlatform = version['targetPlatform']
-                    asseturi = vsc.URLROOT + os.path.join(extensiondir, version['version'], targetPlatform)
+                    asseturi = utils.URLROOT + os.path.join(extensiondir, version['version'], targetPlatform)
                 else:                    
-                    asseturi = vsc.URLROOT + os.path.join(extensiondir, version['version'])
+                    asseturi = utils.URLROOT + os.path.join(extensiondir, version['version'])
 
                 version['assetUri'] = asseturi
                 version['fallbackAssetUri'] = asseturi
@@ -193,7 +198,7 @@ class VSCGallery(object):
         while True:
             self.update_state()
             self.loaded.set()
-            log.info(f'Checking for updates in {vsc.Utility.seconds_to_human_time(self.interval)}')
+            log.info(f'Checking for updates in {utils.Utility.seconds_to_human_time(self.interval)}')
             time.sleep(self.interval)
 
     def on_post(self, req, resp):
@@ -202,16 +207,16 @@ class VSCGallery(object):
             resp.status = falcon.HTTP_404
             return
 
-        sortby = vsc.SortBy.NoneOrRelevance
-        sortorder = vsc.SortOrder.Default
+        sortby = utils.SortBy.NoneOrRelevance
+        sortorder = utils.SortOrder.Default
         #flags = vsc.QueryFlags.NoneDefined
         criteria = req.media['filters'][0]['criteria']
 
         if req.media['filters'][0]['sortOrder']:
-            sortorder = vsc.SortOrder(req.media['filters'][0]['sortOrder'])
+            sortorder = utils.SortOrder(req.media['filters'][0]['sortOrder'])
 
         if req.media['filters'][0]['sortBy']:
-            sortby = vsc.SortBy(req.media['filters'][0]['sortBy'])
+            sortby = utils.SortBy(req.media['filters'][0]['sortBy'])
 
         # Flags can be used for version management, but it appears the client doesn't care what's sent back
         #if req.media['flags']:
@@ -223,9 +228,9 @@ class VSCGallery(object):
         #log.info(f'CRITERIA {criteria}, flags {flags}, sortby {sortby}, sortorder {sortorder}')
 
         # If no order specified, default to InstallCount (e.g. popular first)
-        if sortby == vsc.SortBy.NoneOrRelevance:
-            sortby = vsc.SortBy.InstallCount
-            sortorder = vsc.SortOrder.Descending
+        if sortby == utils.SortBy.NoneOrRelevance:
+            sortby = utils.SortBy.InstallCount
+            sortorder = utils.SortOrder.Descending
 
         result = self._apply_criteria(criteria)
         self._sort(result, sortby, sortorder)
@@ -233,29 +238,29 @@ class VSCGallery(object):
         resp.status = falcon.HTTP_200
 
     def _sort(self, result, sortby, sortorder):
-        if sortorder == vsc.SortOrder.Ascending:
+        if sortorder == utils.SortOrder.Ascending:
             rev = False
         else:
             rev = True
 
-        if sortby == vsc.SortBy.PublisherName:
+        if sortby == utils.SortBy.PublisherName:
             rev = not rev
             result.sort(key=lambda k: k['publisher']['publisherName'], reverse=rev)
 
-        elif sortby == vsc.SortBy.InstallCount:
+        elif sortby == utils.SortBy.InstallCount:
             result.sort(key=lambda k: k['stats']['install'], reverse=rev)
 
-        elif sortby == vsc.SortBy.AverageRating:
+        elif sortby == utils.SortBy.AverageRating:
             result.sort(key=lambda k: k['stats']['averagerating'], reverse=rev)
 
-        elif sortby == vsc.SortBy.WeightedRating:
+        elif sortby == utils.SortBy.WeightedRating:
             result.sort(key=lambda k: k['stats']['weightedRating'], reverse=rev)
 
-        elif sortby == vsc.SortBy.LastUpdatedDate:
-            result.sort(key=lambda k: vsc.Utility.from_json_datetime(k['lastUpdated']), reverse=rev)
+        elif sortby == utils.SortBy.LastUpdatedDate:
+            result.sort(key=lambda k: utils.Utility.from_json_datetime(k['lastUpdated']), reverse=rev)
 
-        elif sortby == vsc.SortBy.PublishedDate:
-            result.sort(key=lambda k: vsc.Utility.from_json_datetime(k['publishedDate']), reverse=rev)
+        elif sortby == utils.SortBy.PublishedDate:
+            result.sort(key=lambda k: utils.Utility.from_json_datetime(k['publishedDate']), reverse=rev)
 
         else:
             rev = not rev
@@ -270,37 +275,37 @@ class VSCGallery(object):
         for crit in criteria:
             if 'filterType' not in crit or 'value' not in crit:
                 continue
-            ft = vsc.FilterType(crit['filterType'])
+            ft = utils.FilterType(crit['filterType'])
             val = crit['value'].lower()
 
-            if ft == vsc.FilterType.Tag:
+            if ft == utils.FilterType.Tag:
                 # ?? Tags
                 log.info(f"Not implemented filter type {ft} for {val}")
                 continue
 
-            elif ft == vsc.FilterType.ExtensionId:
+            elif ft == utils.FilterType.ExtensionId:
                 for name in extensions:
                     if val == extensions[name]['extensionId']:
                         result.append(extensions[name])
 
-            elif ft == vsc.FilterType.Category:
+            elif ft == utils.FilterType.Category:
                 log.info(f"Not implemented filter type {ft} for {val}")
                 continue
 
-            elif ft == vsc.FilterType.ExtensionName:
+            elif ft == utils.FilterType.ExtensionName:
                 for name in extensions:
                     if name.lower() == val:
                         result.append(extensions[name])
 
-            elif ft == vsc.FilterType.Target:
+            elif ft == utils.FilterType.Target:
                 # Ignore the product, typically Visual Studio Code. If it's custom, then let it connect here
                 continue
 
-            elif ft == vsc.FilterType.Featured:
+            elif ft == utils.FilterType.Featured:
                 log.info(f"Not implemented filter type {ft} for {val}")
                 continue
 
-            elif ft == vsc.FilterType.SearchText:
+            elif ft == utils.FilterType.SearchText:
                 for name in extensions:
                     # Search in extension name, display name and short description
                     if val in name.lower():
@@ -310,7 +315,7 @@ class VSCGallery(object):
                     elif 'shortDescription' in extensions[name] and val in extensions[name]['shortDescription'].lower():
                         result.append(extensions[name])
 
-            elif ft == vsc.FilterType.ExcludeWithFlags:
+            elif ft == utils.FilterType.ExcludeWithFlags:
                 # Typically this ignores Unpublished Flag (4096) extensions
                 continue
 
@@ -378,9 +383,9 @@ class VSCDirectoryBrowse(object):
 
     def simple_dir_browse_response(self, path):
         response = ''
-        for item in vsc.Utility.folders_in_folder(path):
+        for item in utils.Utility.folders_in_folder(path):
             response += f'd <a href="/browse?path={os.path.join(path, item)}">{item}</a><br />'
-        for item in vsc.Utility.files_in_folder(path):
+        for item in utils.Utility.files_in_folder(path):
             if item != path:
                 response += f'f <a href="{os.path.join(self.root, path, item)}">{item}</a><br />'
         return response
@@ -396,16 +401,16 @@ class ArtifactChangedHandler(FileSystemEventHandler):
             self.gallery.update_state()
 
 
-if not os.path.exists(vsc.ARTIFACTS):
-    log.warning(f'Artifact directory missing {vsc.ARTIFACTS}. Cannot proceed.')
+if not os.path.exists(utils.ARTIFACTS):
+    log.warning(f'Artifact directory missing {utils.ARTIFACTS}. Cannot proceed.')
     sys.exit(-1)
 
-if not os.path.exists(vsc.ARTIFACTS_INSTALLERS):
-    log.warning(f'Installer artifact directory missing {vsc.ARTIFACTS_INSTALLERS}. Cannot proceed.')
+if not os.path.exists(utils.ARTIFACTS_INSTALLERS):
+    log.warning(f'Installer artifact directory missing {utils.ARTIFACTS_INSTALLERS}. Cannot proceed.')
     sys.exit(-1)
 
-if not os.path.exists(vsc.ARTIFACTS_EXTENSIONS):
-    log.warning(f'Extensions artifact directory missing {vsc.ARTIFACTS_EXTENSIONS}. Cannot proceed.')
+if not os.path.exists(utils.ARTIFACTS_EXTENSIONS):
+    log.warning(f'Extensions artifact directory missing {utils.ARTIFACTS_EXTENSIONS}. Cannot proceed.')
     sys.exit(-1)
 
 vscgallery = VSCGallery()
@@ -423,7 +428,7 @@ application.add_route('/commit:{commitid}/{platform}/{buildquality}', VSCBinaryF
 application.add_route('/extensions/workspaceRecommendations.json.gz', VSCRecommendations()) # Why no compress??
 application.add_route('/extensions/marketplace.json', VSCMalicious())
 application.add_route('/_apis/public/gallery/extensionquery', vscgallery)
-application.add_route('/browse', VSCDirectoryBrowse(vsc.ARTIFACTS))
+application.add_route('/browse', VSCDirectoryBrowse(utils.ARTIFACTS))
 application.add_route('/', VSCIndex())
 application.add_static_route('/artifacts/', '/artifacts/')
 

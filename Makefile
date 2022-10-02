@@ -1,6 +1,5 @@
 build:
-    pip install -r vscsync/requirements.txt
-    pip install -r vscgallery/requirements.txt
+    pip install .[dev]
 
 docker:
     docker-compose build

@@ -1,5 +1,0 @@
-logzero
-requests
-falcon
-gunicorn
-watchdog
