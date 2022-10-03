@@ -1,6 +1,6 @@
 FROM python:3.10-alpine as build
 
-WORKDIR /opt
+WORKDIR /opt/build
 
 # create & install vscoffline package to then provide to second image
 RUN python3 -m venv /opt/venv

@@ -23,7 +23,7 @@ services:
     image: lolinternet/vscgallery:latest
     build:
       context: ./
-      dockerfile: ./vscoffline/vscgallery/Dockerfile    
+      dockerfile: ./_resources/server.Dockerfile
     volumes:
       # Enable for dev
       #- ./vscoffline/:/opt/vscoffline/:ro # Enable for dev
