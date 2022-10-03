@@ -269,7 +269,7 @@ class VSCExtensionDefinition:
         if not self.versions:
             return ""
         elif len(self.versions) == 1:
-            return self.versions[0]["version"]
+            return self.versions[0].version
 
         return ";".join(map(lambda x: x.version, self.versions))
 
@@ -310,9 +310,7 @@ class VSCMarketplace:
         strs = f"<{self.__class__.__name__}>"
         return strs
 
-    def get_specified(
-        self, specifiedpath: pathlib.Path, include_pre_release: bool = False
-    ) -> List[VSCExtensionDefinition]:
+    def get_specified(self, specifiedpath: pathlib.Path) -> List[VSCExtensionDefinition]:
 
         if not specifiedpath.exists():
             specifiedpath.parent.mkdir(parents=True, exist_ok=True)
@@ -336,7 +334,7 @@ class VSCMarketplace:
 
         found_specified_extensions = []
         for package_name in specified_extensions:
-            extension = self.search_by_extension_name(package_name, include_pre_release)
+            extension = self.search_by_extension_name(package_name)
             if extension:
                 log.info(f"Adding extension to mirror: {package_name}")
                 found_specified_extensions.append(extension)
@@ -346,21 +344,9 @@ class VSCMarketplace:
                 )
         return found_specified_extensions
 
-    def search_by_extension_name(
-        self, extensionname: str, include_pre_release: bool = False
-    ) -> Union[bool, VSCExtensionDefinition]:
+    def search_by_extension_name(self, extensionname: str) -> Union[bool, VSCExtensionDefinition]:
         # adjust query flags based on whether its pre-release or not
-        if self.prerelease:
-            releaseQueryFlags = 0
-        else:
-            releaseQueryFlags = (
-                utils.QueryFlags.IncludeFiles
-                | utils.QueryFlags.IncludeVersionProperties
-                | utils.QueryFlags.IncludeAssetUri
-                | utils.QueryFlags.IncludeStatistics
-                | utils.QueryFlags.IncludeStatistics
-                | utils.QueryFlags.IncludeVersions
-            )
+        releaseQueryFlags = 0 if self.prerelease else utils.RELEASE_QUERY_FLAGS
         query_results = self._query_marketplace(
             utils.FilterType.ExtensionName, extensionname, queryFlags=releaseQueryFlags
         )
@@ -368,7 +354,7 @@ class VSCMarketplace:
             return False
 
         result = query_results[0]
-        if not include_pre_release:
+        if not self.prerelease:
             result.versions = result.get_latest_release_versions()
         return result
 
@@ -390,15 +376,9 @@ class VSCMarketplace:
 
     def search_release_by_extension_id(self, extensionid) -> Union[bool, VSCExtensionDefinition]:
         log.debug(f"Searching for release candidate by extensionId: {extensionid}")
-        releaseQueryFlags = (
-            utils.QueryFlags.IncludeFiles
-            | utils.QueryFlags.IncludeVersionProperties
-            | utils.QueryFlags.IncludeAssetUri
-            | utils.QueryFlags.IncludeStatistics
-            | utils.QueryFlags.IncludeStatistics
-            | utils.QueryFlags.IncludeVersions
+        result = self._query_marketplace(
+            utils.FilterType.ExtensionId, extensionid, queryFlags=utils.RELEASE_QUERY_FLAGS
         )
-        result = self._query_marketplace(utils.FilterType.ExtensionId, extensionid, queryFlags=releaseQueryFlags)
         if result and len(result) == 1:
             return result[0]
         else:

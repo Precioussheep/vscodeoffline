@@ -51,6 +51,13 @@ DEFAULT_QUERY_FLAGS = (
     | QueryFlags.IncludeLatestVersionOnly
 )
 
+RELEASE_QUERY_FLAGS = (
+    QueryFlags.IncludeFiles
+    | QueryFlags.IncludeVersionProperties
+    | QueryFlags.IncludeAssetUri
+    | QueryFlags.IncludeStatistics
+    | QueryFlags.IncludeVersions
+)
 
 class FilterType(IntFlag):
     __no_flags_name__ = "Target"
