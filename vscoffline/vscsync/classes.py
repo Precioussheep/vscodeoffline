@@ -326,14 +326,14 @@ class VSCMarketplace:
             log.warning(
                 f"""
                 Malformed json found. Ignoring
-                Expected: {"extensions": ["extension_name_1", "extension_name_2", ...]}
-                Found: {specified_extensions}.
+                Expected: `"extensions": ["extension_name_1", "extension_name_2", ...]`
+                Found: {str(specified_extensions)}.
                 """
             )
             return
 
         found_specified_extensions = []
-        for package_name in specified_extensions:
+        for package_name in specified_extensions["extensions"]:
             extension = self.search_by_extension_name(package_name)
             if extension:
                 log.info(f"Adding extension to mirror: {package_name}")
@@ -345,6 +345,8 @@ class VSCMarketplace:
         return found_specified_extensions
 
     def search_by_extension_name(self, extensionname: str) -> Union[bool, VSCExtensionDefinition]:
+        # Assumes you have extension name exactly right. IE: publisher-name
+
         # adjust query flags based on whether its pre-release or not
         releaseQueryFlags = 0 if self.prerelease else utils.RELEASE_QUERY_FLAGS
         query_results = self._query_marketplace(
@@ -352,16 +354,16 @@ class VSCMarketplace:
         )
         if not query_results or len(query_results) > 1:
             return False
-
         result = query_results[0]
         if not self.prerelease:
             result.versions = result.get_latest_release_versions()
         return result
 
     def search_by_text(self, searchtext: str) -> List[VSCExtensionDefinition]:
+
         if searchtext == "*":
             searchtext = ""
-
+        # note: includes pre-releases
         return self._query_marketplace(utils.FilterType.SearchText, searchtext)
 
     def search_top_n(self, n: int = 200) -> List[VSCExtensionDefinition]:
