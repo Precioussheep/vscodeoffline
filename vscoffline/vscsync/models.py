@@ -68,6 +68,7 @@ class VSCExtensionVersionDefinition:
                 return True
         return False
 
+
 # TODO: Make this __slots__ enabled if/when py310 is default
 @dataclass
 class VSCSyncConfig:

@@ -1,13 +1,24 @@
 import datetime
 import hashlib
-import json
+import os
 import pathlib
 from enum import IntFlag
 from typing import Any, Dict, List, Union
 
+import orjson
 from logzero import logger as log
 
-PLATFORMS = ["win32", "linux", "linux-deb", "linux-rpm", "darwin", "linux-snap", "server-linux"]
+import vscoffline.vscsync.models as sync_models
+
+PLATFORMS = [
+    "win32",
+    "linux",
+    "linux-deb",
+    "linux-rpm",
+    "darwin",
+    "linux-snap",
+    "server-linux",
+]
 ARCHITECTURES = ["", "x64"]
 BUILDTYPES = ["", "archive", "user"]
 QUALITIES = ["stable", "insider"]
@@ -59,6 +70,7 @@ RELEASE_QUERY_FLAGS = (
     | QueryFlags.IncludeVersions
 )
 
+
 class FilterType(IntFlag):
     __no_flags_name__ = "Target"
     Tag = 1
@@ -91,28 +103,6 @@ class SortOrder(IntFlag):
     Descending = 2
 
 
-class MagicJsonEncoder(json.JSONEncoder):
-    def default(self, o: Any):
-        try:
-            return super().default(o)
-        except TypeError as err:
-            # could be datetime
-            if isinstance(o, datetime.datetime):
-                return o.isoformat()
-            # could also be cls with slots
-            try:
-                return {key: getattr(o, key, None) for key in o.__slots__}
-            except AttributeError:
-                pass
-            # finally, should have a dict if it is a dataclass or another cls
-            try:
-                return o.__dict__
-            except AttributeError:
-                raise TypeError(
-                    "Can't encode object. Tried isoformat of datetime, class slots and class dict"
-                ) from err
-
-
 def hash_file_and_check(filepath: Union[str, pathlib.Path], expectedchecksum: str) -> bool:
     """
     Hashes a file and checks for the expected checksum.
@@ -140,20 +130,35 @@ def load_json(filepath: Union[str, pathlib.Path]) -> Union[List[Any], Dict[str, 
         log.debug(f"Cannot load json at path {filepath.absolute()}. It is a directory")
         return result
 
-    with open(filepath, "r", encoding="utf-8-sig") as fp:
+    with open(filepath, "rb") as fp:
         try:
-            result = json.load(fp)
+            result = orjson.loads(fp.read())
             if not result:
                 return []
-        except json.decoder.JSONDecodeError as err:
+        except orjson.JSONDecodeError as err:
             log.debug(f"JSONDecodeError while processing {filepath.absolute()} \n error: {str(err)}")
             return []
     return result
 
+def magic_json_encoder(obj: Any) -> Any:
+    try:
+        return {key: getattr(obj, key, None) for key in obj.__slots__}
+    except AttributeError:
+        pass
+    try:
+        o_dict = obj.__dict__
+        if isinstance(obj, sync_models.VSCExtensionVersionDefinition) and "targetPlatform" in o_dict:
+            del o_dict["targetPlatform"]
+    except AttributeError:
+        pass
+    raise TypeError(f"{type(obj)} is not serializable")
+
 
 def write_json(filepath: Union[str, pathlib.Path], content: Dict[str, Any]) -> None:
-    with open(filepath, "w") as outfile:
-        json.dump(content, outfile, cls=MagicJsonEncoder, indent=4)
+    with open(filepath, "wb") as outfile:
+        outfile.write(
+            orjson.dumps(content, option=orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2, default=magic_json_encoder)
+        )
 
 
 def first_file(filepath: pathlib.Path, pattern: str, reverse: bool = False) -> Union[pathlib.Path, bool]:
@@ -169,12 +174,12 @@ def first_file(filepath: pathlib.Path, pattern: str, reverse: bool = False) -> U
     return results[0]
 
 
-def folders_in_folder(filepath: pathlib.Path) -> List[pathlib.Path]:
-    return [f for f in filepath.iterdir() if f.is_dir()]
+def folders_in_folder(filepath: Union[str, pathlib.Path]) -> List[os.DirEntry]:
+    return [d for d in os.scandir(filepath) if d.is_dir()]
 
 
-def files_in_folder(filepath: pathlib.Path) -> List[pathlib.Path]:
-    return [f for f in filepath.iterdir() if f.is_file()]
+def files_in_folder(filepath: Union[str, pathlib.Path]) -> List[os.DirEntry]:
+    return [f for f in os.scandir(filepath) if f.is_file()]
 
 
 def seconds_to_human_time(seconds: int) -> str:

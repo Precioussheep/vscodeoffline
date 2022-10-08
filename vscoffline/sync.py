@@ -7,7 +7,7 @@ from typing import Dict, List
 import logzero
 
 import vscoffline.utils as utils
-from vscoffline.vscsync import classes as vscsync_classes
+import vscoffline.vscsync.classes as vscsync_classes
 from vscoffline.vscsync.models import VSCSyncConfig
 
 log = logzero.logger

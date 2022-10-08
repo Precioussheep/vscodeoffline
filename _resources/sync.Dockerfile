@@ -8,20 +8,21 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 COPY . .
 
-RUN pip3 install --no-cache-dir --upgrade pip wheel setuptools && \
-    pip3 install --no-cache-dir .
+RUN python3 -m pip install --no-cache-dir --upgrade pip wheel setuptools && \
+    python3 -m pip install --no-cache-dir --compile .
 
-FROM python:3.10-alpine as deploy 
+FROM python:3.10-alpine as deploy
 
-RUN apk upgrade --no-cache
+# upgrade image &
+# setup default artifacts location
+RUN apk upgrade --no-cache && \
+    mkdir /artifacts
 
 COPY --from=build /opt/venv /opt/venv
+
 ENV PATH="/opt/venv/bin:$PATH" \
     ARTIFACTS=/artifacts \
     SYNCARGS=--sync
-
-# setup default artifacts location
-RUN mkdir /artifacts
 
 WORKDIR /app
 

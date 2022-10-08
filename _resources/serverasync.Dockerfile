@@ -1,6 +1,5 @@
 FROM python:3.10-alpine as build
 
-# For gunicorn > 20.0.0
 RUN apk --no-cache add libc-dev binutils 
 
 WORKDIR /opt/build
@@ -12,11 +11,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY . .
 
 RUN python3 -m pip install --no-cache-dir --upgrade pip wheel setuptools && \
-    python3 -m pip install --no-cache-dir .[server]
+    python3 -m pip install --no-cache-dir --compile .[server_async]
 
 FROM python:3.10-alpine as deploy
 
-# For gunicorn > 20.0.0
 RUN apk --no-cache upgrade && \
     apk --no-cache add libc-dev binutils && \
     mkdir /artifacts/
@@ -24,20 +22,19 @@ RUN apk --no-cache upgrade && \
 COPY --from=build /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH" \
     ARTIFACTS=/artifacts \
-    BIND=0.0.0.0:9000 \
-    TIMEOUT=180 \
-    THREADS=4 \
-    WORKERS=8
+    HOST=0.0.0.0 \
+    PORT=9000 \
+    TIMEOUT=180
 
 WORKDIR /app
 
 COPY ./vscoffline/vscgallery /opt/vscoffline/vscgallery
-COPY ./vscoffline/server.py /app/server.py
+COPY ./vscoffline/server_async.py /app/server_async.py
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=2 \
-    CMD curl -f -k http://$BIND || exit 1
-CMD gunicorn --bind $BIND \
-    --access-logfile - --preload --timeout $TIMEOUT \
-    --threads $THREADS \
-    --workers $WORKERS \
-    server:application
+    CMD curl -f -k http://$HOST:$PORT || exit 1
+
+CMD uvicorn --host ${HOST} \ 
+    --port ${PORT} \
+    --timeout-keep-alive ${TIMEOUT} \
+    server_async:app

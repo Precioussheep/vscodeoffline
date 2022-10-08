@@ -1,26 +1,105 @@
+import asyncio
+import hashlib
 import os
 import pathlib
 import time
 import urllib.parse
-from threading import Event, Thread
 from typing import Any, Dict, List, Union
-from wsgiref import simple_server
 
+import aiofiles
+import aiopath
 import falcon
+import falcon.asgi as fasgi
+import orjson
 from logzero import logger as log
-from watchdog.events import DirModifiedEvent, FileModifiedEvent, FileSystemEventHandler
-from watchdog.observers.polling import PollingObserver
 
 import vscoffline.utils as utils
 
 # -----------------------------------------------------------------------------
+# ASYNC VARIABLES
+
+
+async def async_load_json(filepath: aiopath.AsyncPath) -> Union[List[Any], Dict[str, Any]]:
+    # technically this could be just filepath = pathlib.Path(filepath)
+    # because wrapping a path will still return the same path
+    result = []
+    if not await filepath.exists():
+        log.debug(f"Unable to load json from {await filepath.absolute()}. Does not exist.")
+        return result
+    elif await filepath.is_dir():
+        log.debug(f"Cannot load json at path {await filepath.absolute()}. It is a directory")
+        return result
+
+    async with aiofiles.open(filepath, "rb") as fp:
+        try:
+            result = orjson.loads(await fp.read())
+            if not result:
+                return []
+        except orjson.JSONDecodeError as err:
+            log.debug(f"JSONDecodeError while processing {await filepath.absolute()} \n error: {str(err)}")
+            return []
+    return result
+
+
+async def async_first_file(
+    filepath: aiopath.AsyncPath, pattern: str, reverse: bool = False
+) -> Union[aiopath.AsyncPath, bool]:
+    # 3 cases:
+    # no results
+    # only one result - order doesn't matter
+    # more than 1 - sort
+    results = [path async for path in filepath.glob(pattern)]
+    if not results:
+        return False
+    elif len(results) >= 1 and reverse:
+        results.sort(reverse=True)
+    return results[0]
+
+
+async def async_hash_file_and_check(filepath: aiopath.AsyncPath, expectedchecksum: str) -> bool:
+    """
+    Hashes a file and checks for the expected checksum.
+
+    Checksum is sha256 default implementation.
+    """
+    h = hashlib.sha256()
+    async with aiofiles.open(filepath, "rb") as fp:
+        async for chunk in iter(lambda: fp.read(4096), b""):
+            h.update(chunk)
+    return expectedchecksum == h.hexdigest()
+
+
+# slow due to pathlib rather than os.scandir
+async def async_folders_in_folder(filepath: aiopath.AsyncPath) -> List[aiopath.AsyncPath]:
+    # return [d for d in os.scandir(filepath) if d.is_dir()]
+    return [d async for d in filepath.iterdir() if await d.is_dir()]
+
+
+# slow due to pathlib rather than os.scandir
+async def async_files_in_folder(filepath: aiopath.AsyncPath) -> List[aiopath.AsyncPath]:
+    return [f async for f in filepath.iterdir() if await f.is_file()]
+
+
+# -----------------------------------------------------------------------------
 # STATIC VARIABLES
 
-ARTIFACTS_ASPATH = pathlib.Path(utils.ARTIFACTS)
-ARTIFACTS_INSTALLERS_ASPATH = pathlib.Path(utils.ARTIFACTS_INSTALLERS)
-ARTIFACTS_EXTENSIONS_ASPATH = pathlib.Path(utils.ARTIFACTS_EXTENSIONS)
-ARTIFACT_RECOMMENDATION_ASPATH = pathlib.Path(utils.ARTIFACT_RECOMMENDATION)
-ARTIFACT_MALICIOUS_ASPATH = pathlib.Path(utils.ARTIFACT_MALICIOUS)
+if not pathlib.Path(utils.ARTIFACTS).exists():
+    log.warning(f"Artifact directory missing {utils.ARTIFACTS}. Cannot proceed.")
+    exit(-1)
+
+if not pathlib.Path(utils.ARTIFACTS_INSTALLERS).exists():
+    log.warning(f"Installer artifact directory missing {utils.ARTIFACTS_INSTALLERS}. Cannot proceed.")
+    exit(-1)
+
+if not pathlib.Path(utils.ARTIFACTS_EXTENSIONS).exists():
+    log.warning(f"Extensions artifact directory missing {utils.ARTIFACTS_EXTENSIONS}. Cannot proceed.")
+    exit(-1)
+
+ARTIFACTS_ASPATH = aiopath.AsyncPath(utils.ARTIFACTS)
+ARTIFACTS_INSTALLERS_ASPATH = aiopath.AsyncPath(utils.ARTIFACTS_INSTALLERS)
+ARTIFACTS_EXTENSIONS_ASPATH = aiopath.AsyncPath(utils.ARTIFACTS_EXTENSIONS)
+ARTIFACT_RECOMMENDATION_ASPATH = aiopath.AsyncPath(utils.ARTIFACT_RECOMMENDATION)
+ARTIFACT_MALICIOUS_ASPATH = aiopath.AsyncPath(utils.ARTIFACT_MALICIOUS)
 
 STATIC_STAT_BUILDER = {"averagerating": 0, "install": 0, "weightedRating": 0}
 
@@ -37,17 +116,17 @@ with open("/opt/vscoffline/vscgallery/content/index.html", "r") as f:
 
 class VSCUpdater:
     @staticmethod
-    def on_get(_: falcon.Request, resp: falcon.Response, platform: str, buildquality: str, commitid: str) -> None:
+    async def on_get(_: fasgi.Response, resp: fasgi.Response, platform: str, buildquality: str, commitid: str) -> None:
         update_dir = ARTIFACTS_INSTALLERS_ASPATH.joinpath(platform, buildquality)
-        if not update_dir.exists():
+        if not await update_dir.exists():
             log.warning(
-                f"Update build directory does not exist at {update_dir.absolute()}. Check sync or sync configuration."
+                f"Update build directory does not exist at {await update_dir.absolute()}. Check sync or sync configuration."
             )
             resp.status = falcon.HTTP_500
             return
 
         latest_path = update_dir.joinpath("latest.json")
-        latest = utils.load_json(latest_path)
+        latest = await async_load_json(latest_path)
 
         if not latest:
             resp.text = "Unable to load latest.json"
@@ -61,21 +140,21 @@ class VSCUpdater:
             resp.status = falcon.HTTP_204
             return
 
-        update_path = utils.first_file(update_dir, f"vscode-{latest['name']}.*")
+        update_path = await async_first_file(update_dir, f"vscode-{latest['name']}.*")
         if not update_path:
             resp.text = "Unable to find update payload"
             log.warning(f"""Unable to find update payload from {update_dir}/vscode-{latest['name']}.*""")
             resp.status = falcon.HTTP_404
             return
 
-        if not utils.hash_file_and_check(update_path, latest["sha256hash"]):
+        if not await async_hash_file_and_check(update_path, latest["sha256hash"]):
             resp.text = "Update payload hash mismatch"
             log.warning(f"Update payload hash mismatch {update_path}")
             resp.status = falcon.HTTP_403
             return
 
         # Url to get update
-        latest["url"] = urllib.parse.urljoin(utils.URLROOT, str(update_path.absolute()))
+        latest["url"] = urllib.parse.urljoin(utils.URLROOT, str(await update_path.absolute()))
         log.debug(f"Client {platform}, Quality {buildquality}. Providing update {update_path}")
         resp.status = falcon.HTTP_200
         resp.media = latest
@@ -83,92 +162,139 @@ class VSCUpdater:
 
 class VSCBinaryFromCommitId:
     @staticmethod
-    def on_get(_: falcon.Request, resp: falcon.Response, commitid: str, platform: str, buildquality: str) -> None:
+    async def on_get(_: fasgi.Response, resp: fasgi.Response, commitid: str, platform: str, buildquality: str) -> None:
         update_dir = ARTIFACTS_INSTALLERS_ASPATH.joinpath(platform, buildquality)
-        if not update_dir.exists():
+        if not await update_dir.exists():
             log.warning(
-                f"Update build directory does not exist at {update_dir.absolute()}. Check sync or sync configuration."
+                f"Update build directory does not exist at {await update_dir.absolute()}. Check sync or sync configuration."
             )
             resp.status = falcon.HTTP_500
             return
 
         json_path = update_dir.joinpath(f"{commitid}.json")
 
-        update_json = utils.load_json(json_path)
+        update_json = await async_load_json(json_path)
         if not update_json:
-            resp.text = f"Unable to load {json_path.absolute()}"
+            resp.text = f"Unable to load {await json_path.absolute()}"
             log.warning(resp.text)
             resp.status = falcon.HTTP_500
             return
 
-        update_path = utils.first_file(update_dir, f"vscode-{update_json['name']}.*")
+        update_path = await async_first_file(update_dir, f"vscode-{update_json['name']}.*")
         if not update_path:
             resp.text = f"""Unable to find update payload from {update_dir}/vscode-{update_json['name']}.*"""
             log.warning(resp.text)
             resp.status = falcon.HTTP_404
             return
 
-        if not utils.hash_file_and_check(update_path, update_json["sha256hash"]):
+        if not await async_hash_file_and_check(update_path, update_json["sha256hash"]):
             resp.text = f"Update payload hash mismatch {update_path}"
             log.warning(resp.text)
             resp.status = falcon.HTTP_403
             return
 
         # Url for the client to fetch the update
-        resp.set_header("Location", urllib.parse.urljoin(utils.URLROOT, str(update_path.absolute())))
+        resp.set_header("Location", urllib.parse.urljoin(utils.URLROOT, str(await update_path.absolute())))
         resp.status = falcon.HTTP_302
 
 
 class VSCRecommendations:
     @staticmethod
-    def on_get(_: falcon.Request, resp: falcon.Response) -> None:
-        if not ARTIFACT_RECOMMENDATION_ASPATH.exists():
+    async def on_get(_: fasgi.Request, resp: fasgi.Response) -> None:
+        if not await ARTIFACT_RECOMMENDATION_ASPATH.exists():
             resp.status = falcon.HTTP_404
             return
         resp.status = falcon.HTTP_200
         resp.content_type = "application/octet-stream"
-        resp.stream = open(ARTIFACT_RECOMMENDATION_ASPATH, "rb")
+        resp.stream = await aiofiles.open(ARTIFACT_RECOMMENDATION_ASPATH, "rb")
 
 
 class VSCMalicious:
     @staticmethod
-    def on_get(_: falcon.Request, resp: falcon.Response) -> None:
-        if not ARTIFACT_MALICIOUS_ASPATH.exists():
+    async def on_get(_: fasgi.Request, resp: fasgi.Response) -> None:
+        if not await ARTIFACT_MALICIOUS_ASPATH.exists():
             resp.status = falcon.HTTP_404
             return
         resp.status = falcon.HTTP_200
         resp.content_type = "application/octet-stream"
-        resp.stream = open(ARTIFACT_MALICIOUS_ASPATH, "rb")
+        resp.stream = await aiofiles.open(ARTIFACT_MALICIOUS_ASPATH, "rb")
+
+
+class VSCIndex:
+    @staticmethod
+    async def on_get(_: fasgi.Request, resp: fasgi.Response) -> None:
+        # TODO: Fix so it doesn't read from static location.
+        resp.content_type = "text/html"
+        resp.text = STATIC_INDEX_HTML
+        resp.status = falcon.HTTP_200
+
+
+class VSCDirectoryBrowse:
+
+    __slots__ = ["root"]
+
+    def __init__(self, root: aiopath.AsyncPath) -> None:
+        if not isinstance(root, aiopath.AsyncPath):
+            self.root = aiopath.AsyncPath(root)
+        self.root = root
+
+    async def on_get(self, req: fasgi.Request, resp: fasgi.Response) -> None:
+        requested_path = self.root.joinpath(req.get_param("path", required=True))
+        # Check the path requested
+        if os.path.commonpath((await requested_path.absolute(), await self.root.absolute())) != str(
+            await self.root.absolute()
+        ):
+            resp.status = falcon.HTTP_403
+            return
+        resp.content_type = "text/html"
+        # Load template and replace variables
+        resp.text = STATIC_BROWSE_HTML
+        resp.text = resp.text.replace("{PATH}", str(await requested_path.absolute()))
+
+        resp.text = resp.text.replace("{CONTENT}", await self.simple_dir_browse_response(requested_path))
+        resp.status = falcon.HTTP_200
+
+    @staticmethod
+    async def simple_dir_browse_response(path: aiopath.AsyncPath) -> str:
+        response = ""
+        for item in await async_folders_in_folder(path):
+            response += f'd <a href="/browse?path={await item.absolute()}">{item.name}</a><br />'
+        for item in await async_files_in_folder(path):
+            response += f'f <a href="{await item.absolute()}">{item.name}</a><br />'
+        return response
 
 
 class VSCGallery:
 
-    __slots__ = ["extensions", "interval", "loaded", "update_worker"]
+    __slots__ = ["extensions", "interval"]
 
     def __init__(self, interval: int = 3600) -> None:
         self.extensions: Dict[str, Any] = {}
         self.interval: int = interval
-        self.loaded: Event = Event()
-        self.update_worker: Thread = Thread(target=self.update_state_loop, args=())
-        self.update_worker.daemon = True
-        self.update_worker.start()
 
-    def update_state(self):
+    async def update_state_watcher(self) -> None:
+        while True:
+            await self.update_state()
+            print(f"Finished extension check. Will check again in {self.interval} seconds")
+            await asyncio.sleep(self.interval)
+
+    async def update_state(self):
         start = time.time()
         # Load each extension
         # we use scandir here since it will provide the `is_dir` subfunction for filtering,
         # while being faster than a glob
         # still, try to keep to pathlib where we can for keeping it the same
-        for extensiondir in filter(lambda d: d.is_dir(), os.scandir(ARTIFACTS_EXTENSIONS_ASPATH)):
+        for extensiondir in [d async for d in ARTIFACTS_EXTENSIONS_ASPATH.glob("./*/") if await d.is_dir()]:
             # Load the latest version of each extension
-            latest_path = os.path.join(extensiondir, "latest.json")
-            latest = utils.load_json(latest_path)
+            latest_path = extensiondir.joinpath("latest.json")
+
+            latest = await async_load_json(latest_path)
 
             if not latest:
                 log.debug(f"Tried to load invalid manifest json {latest_path}")
                 continue
 
-            latest = self.process_loaded_extension(latest, extensiondir)
+            latest = await self.process_loaded_extension(latest, extensiondir)
 
             if not latest:
                 log.debug(f"Unable to determine latest version {latest_path}")
@@ -178,13 +304,13 @@ class VSCGallery:
             latestversion = latest["versions"][0]
 
             # Find other versions
-            for ver_path in pathlib.Path(extensiondir).glob("./*/extension.json"):
-                vers = utils.load_json(ver_path)
+            async for ver_path in extensiondir.glob("./*/extension.json"):
+                vers = await async_load_json(ver_path)
 
                 if not vers:
-                    log.debug(f"Tried to load invalid version manifest json {ver_path.absolute()}")
+                    log.debug(f"Tried to load invalid version manifest json {await ver_path.absolute()}")
                     continue
-                vers = self.process_loaded_extension(vers, extensiondir)
+                vers = await self.process_loaded_extension(vers, extensiondir)
 
                 # If this extension.json is actually the latest version, then ignore it
                 if not vers or latestversion == vers["versions"][0]:
@@ -201,13 +327,15 @@ class VSCGallery:
         log.info(f"Loaded {len(self.extensions)} extensions in {time.time() - start}")
 
     @staticmethod
-    def process_loaded_extension(extension: Dict[str, Any], extensiondir: str) -> Dict[str, Any]:
+    async def process_loaded_extension(extension: Dict[str, Any], extensiondir: aiopath.AsyncPath) -> Dict[str, Any]:
         # Repoint asset urls
         for version in extension["versions"]:
             if "targetPlatform" in version and version["targetPlatform"]:
-                asseturi = utils.URLROOT + os.path.join(extensiondir, version["version"], version["targetPlatform"])
+                to_join = str(await extensiondir.joinpath(version["version"], version["targetPlatform"]).absolute())
+                asseturi = utils.URLROOT + to_join
             else:
-                asseturi = utils.URLROOT + os.path.join(extensiondir, version["version"])
+                to_join = str(await extensiondir.joinpath(version["version"]).absolute())
+                asseturi = utils.URLROOT + to_join
 
             version["assetUri"] = version["fallbackAssetUri"] = asseturi
             for asset in version["files"]:
@@ -224,14 +352,7 @@ class VSCGallery:
         extension["stats"] = stats
         return extension
 
-    def update_state_loop(self):
-        while True:
-            self.update_state()
-            self.loaded.set()
-            log.info(f"Checking for updates in {utils.seconds_to_human_time(self.interval)}")
-            time.sleep(self.interval)
-
-    def on_post(self, req: falcon.Request, resp: falcon.Response) -> None:
+    async def on_post(self, req: fasgi.Request, resp: fasgi.Response) -> None:
         if "filters" not in req.media or "criteria" not in req.media["filters"][0] or "flags" not in req.media:
             log.warning(f"Post missing critical components. Raw post {req.media}")
             resp.status = falcon.HTTP_404
@@ -252,13 +373,13 @@ class VSCGallery:
             sortby = utils.SortBy.InstallCount
             sortorder = utils.SortOrder.Descending
 
-        result = self._apply_criteria(criteria)
-        self._sort(result, sortby, sortorder)
-        resp.media = self._build_response(result)
+        result = await self._apply_criteria(criteria)
+        await self._sort(result, sortby, sortorder)
+        resp.media = await self._build_response(result)
         resp.status = falcon.HTTP_200
 
     @staticmethod
-    def _sort(result: List[Dict[str, Any]], sortby: int, sortorder: int) -> None:
+    async def _sort(result: List[Dict[str, Any]], sortby: int, sortorder: int) -> None:
         # NOTE: modifies result in place
         rev = sortorder == utils.SortOrder.Ascending
 
@@ -284,7 +405,7 @@ class VSCGallery:
             rev = not rev
             result.sort(key=lambda k: k["displayName"], reverse=rev)
 
-    def _apply_criteria(self, criteria: List[Dict[str, Any]]):
+    async def _apply_criteria(self, criteria: List[Dict[str, Any]]):
         # `self.extensions` may be modified by the update thread while this
         # function is executing so we need to operate on a copy
         extensions = self.extensions.copy()
@@ -339,7 +460,7 @@ class VSCGallery:
         return result
 
     @staticmethod
-    def _build_response(resultingExtensions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _build_response(resultingExtensions: List[Dict[str, Any]]) -> Dict[str, Any]:
         return {
             "results": [
                 {
@@ -356,89 +477,15 @@ class VSCGallery:
         }
 
 
-class VSCIndex:
-    @staticmethod
-    def on_get(_: falcon.Request, resp: falcon.Response) -> None:
-        # TODO: Fix so it doesn't read from static location.
-        resp.content_type = "text/html"
-        resp.text = STATIC_INDEX_HTML
-        resp.status = falcon.HTTP_200
-
-
-class VSCDirectoryBrowse:
-
-    __slots__ = ["root"]
-
-    def __init__(self, root: pathlib.Path) -> None:
-        if not isinstance(root, pathlib.Path):
-            self.root = pathlib.Path(root)
-        self.root = root
-
-    def on_get(self, req: falcon.Request, resp: falcon.Response) -> None:
-        start = time.time()
-        requested_path = self.root.joinpath(req.get_param("path", required=True))
-        # Check the path requested
-        if os.path.commonpath((requested_path.absolute(), self.root.absolute())) != str(self.root.absolute()):
-            resp.status = falcon.HTTP_403
-            return
-        resp.content_type = "text/html"
-        # Load template and replace variables
-        resp.text = STATIC_BROWSE_HTML
-        resp.text = resp.text.replace("{PATH}", str(requested_path.absolute()))
-        resp.text = resp.text.replace("{CONTENT}", self.simple_dir_browse_response(requested_path))
-        resp.status = falcon.HTTP_200
-
-    @staticmethod
-    def simple_dir_browse_response(path: pathlib.Path) -> str:
-        response = ""
-        for item in utils.folders_in_folder(path):
-            response += f'd <a href="/browse?path={item.path}">{item.name}</a><br />'
-        for item in utils.files_in_folder(path):
-            response += f'f <a href="{item.path}">{item.name}</a><br />'
-        return response
-
-
-class ArtifactChangedHandler(FileSystemEventHandler):
-
-    __slots__ = ["gallery"]
-
-    def __init__(self, gallery: VSCGallery) -> None:
-        self.gallery = gallery
-
-    def on_modified(self, event: Union[DirModifiedEvent, FileModifiedEvent]) -> None:
-        if "updated.json" in event.src_path:
-            log.info("Detected updated.json change, updating extension gallery")
-            self.gallery.update_state()
-
-
-if not ARTIFACTS_ASPATH.exists():
-    log.warning(f"Artifact directory missing {utils.ARTIFACTS}. Cannot proceed.")
-    exit(-1)
-
-if not ARTIFACTS_INSTALLERS_ASPATH.exists():
-    log.warning(f"Installer artifact directory missing {utils.ARTIFACTS_INSTALLERS}. Cannot proceed.")
-    exit(-1)
-
-if not ARTIFACTS_EXTENSIONS_ASPATH.exists():
-    log.warning(f"Extensions artifact directory missing {utils.ARTIFACTS_EXTENSIONS}. Cannot proceed.")
-    exit(-1)
-
 vscgallery = VSCGallery()
-observer = PollingObserver()
-observer.schedule(ArtifactChangedHandler(vscgallery), "/artifacts/", recursive=False)
-observer.start()
+asyncio.create_task(vscgallery.update_state_watcher())
 
-
-application = falcon.App(cors_enable=True)
-application.add_route("/api/update/{platform}/{buildquality}/{commitid}", VSCUpdater())
-application.add_route("/commit:{commitid}/{platform}/{buildquality}", VSCBinaryFromCommitId())
-application.add_route("/extensions/workspaceRecommendations.json.gz", VSCRecommendations())  # Why no compress??
-application.add_route("/extensions/marketplace.json", VSCMalicious())
-application.add_route("/_apis/public/gallery/extensionquery", vscgallery)
-application.add_route("/browse", VSCDirectoryBrowse(ARTIFACTS_ASPATH))
-application.add_route("/", VSCIndex())
-application.add_static_route("/artifacts/", "/artifacts/")
-
-if __name__ == "__main__":
-    httpd = simple_server.make_server("0.0.0.0", 5000, application)
-    httpd.serve_forever()
+app = fasgi.App()
+app.add_route("/api/update/{platform}/{buildquality}/{commitid}", VSCUpdater())
+app.add_route("/commit:{commitid}/{platform}/{buildquality}", VSCBinaryFromCommitId())
+app.add_route("/extensions/workspaceRecommendations.json.gz", VSCRecommendations())  # Why no compress??
+app.add_route("/extensions/marketplace.json", VSCMalicious())
+app.add_route("/_apis/public/gallery/extensionquery", vscgallery)
+app.add_route("/", VSCIndex())
+app.add_route("/browse", VSCDirectoryBrowse(ARTIFACTS_ASPATH))
+app.add_static_route("/artifacts/", "/artifacts/")

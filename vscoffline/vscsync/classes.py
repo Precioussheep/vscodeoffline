@@ -1,11 +1,10 @@
 import datetime
 import itertools
-import json
 import pathlib
-import re
 import uuid
 from typing import Any, Dict, List, Optional, Set, Union
 
+import orjson
 import requests
 from logzero import logger as log
 
@@ -85,7 +84,11 @@ class VSCUpdateDefinition:
         url = f"{utils.URL_BINUPDATES}{self.identity}/{self.quality}/{old_commit_id}"
 
         log.debug(f"Update url {url}")
-        result = requests.get(url, allow_redirects=True, timeout=utils.TIMEOUT)
+        try:
+            result = requests.get(url, allow_redirects=True, timeout=utils.TIMEOUT)
+        except Exception as err:
+            log.warning(f"Unable to get update file. Treating as unavailable. \n Request error: {str(err)}")
+            return False
         self.checkedForUpdate = True
 
         if result.status_code == 204:
@@ -98,9 +101,12 @@ class VSCUpdateDefinition:
             return False
 
         try:
-            jresult = result.json()
-        except Exception as err:
-            raise ValueError("Unable to decode response from update check. Failing.") from err
+            jresult = orjson.loads(result.content)
+        except orjson.JSONDecodeError as err:
+            log.warning(
+                f"Unable to decode response from update check. Treating as unavailable. \n Original Error: {str(err)}"
+            )
+            return False
 
         self.updateurl = jresult["url"]
         self.name = jresult["name"]
@@ -137,7 +143,11 @@ class VSCUpdateDefinition:
             log.debug(f"Previously downloaded {self}")
         else:
             log.info(f"Downloading {self} to {destfile}")
-            result = requests.get(self.updateurl, allow_redirects=True, timeout=utils.TIMEOUT)
+            try:
+                result = requests.get(self.updateurl, allow_redirects=True, timeout=utils.TIMEOUT)
+            except Exception as err:
+                log.warning(f"Failed to download update binary. Treating as unavailable. \nOriginal Error: {str(err)}")
+                return False
             with open(destfile, "wb") as outfile:
                 outfile.write(result.content)
             if not utils.hash_file_and_check(destfile, self.sha256hash):
@@ -167,7 +177,22 @@ class VSCUpdateDefinition:
 
 class VSCExtensionDefinition:
 
-    __slots__ = ["identity", "extensionId", "recommended", "versions"]
+    __slots__ = [
+        "identity",
+        "extensionId",
+        "recommended",
+        "versions",
+        "publisher",
+        "extensionName",
+        "displayName",
+        "flags",
+        "lastUpdated",
+        "publishedDate",
+        "releaseDate",
+        "shortDescription",
+        "statistics",
+        "deploymentType",
+    ]
 
     def __init__(self, identity: str, raw: Optional[Dict[str, Any]] = None):
         self.identity: str = identity
@@ -176,10 +201,13 @@ class VSCExtensionDefinition:
         self.versions: List[sync_models.VSCExtensionVersionDefinition] = []
 
         # process raw input from api call (if any)
+        # will overwrite extensionId, but not any of the others defined above.
         if not raw:
             return
-        if "extensionId" in raw:
-            self.extensionId = raw["extensionId"]
+
+        for property in set(self.__slots__) - {"identity", "recommended", "versions"}:
+            if property in raw:
+                setattr(self, property, raw[property])
         if "versions" in raw:
             self.versions = [sync_models.VSCExtensionVersionDefinition.from_dict(ver) for ver in raw["versions"]]
 
@@ -188,10 +216,10 @@ class VSCExtensionDefinition:
         return strs
 
     def download_assets(self, destination: pathlib.Path) -> None:
-        for version in self.versions:
-            targetplatform = version.targetPlatform or ""
-            ver_destination = pathlib.Path(destination, self.identity, version.version, targetplatform)
-            for file in version.files:
+        for ver in self.versions:
+            targetplatform = ver.targetPlatform or ""
+            ver_destination = pathlib.Path(destination, self.identity, ver.version, targetplatform)
+            for file in ver.files:
                 url = file.source
                 if not url:
                     log.warning(
@@ -199,15 +227,23 @@ class VSCExtensionDefinition:
                     )
                     continue
                 asset = file.assetType
-                destfile = ver_destination.joinpath(f"{asset}")
-                destfile.parent.mkdir(parents=True, exist_ok=True)
+                destfile = ver_destination.joinpath(asset)
+                if not destfile.parent.exists():
+                    destfile.parent.mkdir(parents=True)
+                if destfile.exists():
+                    log.debug(f"File already exists: {destfile.absolute()}. Skipping")
+                    continue
                 log.debug(f"Downloading {self.identity} {asset} to {destfile}")
-                result = requests.get(url, allow_redirects=True, timeout=utils.TIMEOUT)
+                try:
+                    result = requests.get(url, allow_redirects=True, timeout=utils.TIMEOUT)
+                except Exception as err:
+                    log.warning(f"Failed to download assets. Treating as unavailable. Original Error: {str(err)}")
+                    continue
                 try:
                     result.raise_for_status()
                 except requests.HTTPError as err:
                     log.info(
-                        f"Download request for {self.identity} - {version.version} failed with detail: {str(err)} \n Response body: {result.text}"
+                        f"Download request for {self.identity} - {ver.version} failed with detail: {str(err)} \n Response body: {result.text}"
                     )
                     continue
                 with open(destfile, "wb") as dest:
@@ -224,7 +260,11 @@ class VSCExtensionDefinition:
         for version in self.versions:
             targetplatform = version.targetPlatform or ""
             manifestpath = pathlib.Path(
-                destination, self.identity, version.version, targetplatform, "Microsoft.VisualStudio.Code.Manifest"
+                destination,
+                self.identity,
+                version.version,
+                targetplatform,
+                "Microsoft.VisualStudio.Code.Manifest",
             )
             manifest = utils.load_json(manifestpath)
             if manifest and "extensionPack" in manifest:
@@ -251,7 +291,9 @@ class VSCExtensionDefinition:
                     return True
         return False
 
-    def get_latest_release_versions(self) -> List[sync_models.VSCExtensionVersionDefinition]:
+    def get_latest_release_versions(
+        self,
+    ) -> List[sync_models.VSCExtensionVersionDefinition]:
         if not self.versions:
             return []
         if len(self.versions) == 1:
@@ -379,7 +421,9 @@ class VSCMarketplace:
     def search_release_by_extension_id(self, extensionid) -> Union[bool, VSCExtensionDefinition]:
         log.debug(f"Searching for release candidate by extensionId: {extensionid}")
         result = self._query_marketplace(
-            utils.FilterType.ExtensionId, extensionid, queryFlags=utils.RELEASE_QUERY_FLAGS
+            utils.FilterType.ExtensionId,
+            extensionid,
+            queryFlags=utils.RELEASE_QUERY_FLAGS,
         )
         if result and len(result) == 1:
             return result[0]
@@ -389,21 +433,16 @@ class VSCMarketplace:
 
     def get_recommendations(self, destination: pathlib.Path, totalrecommended: int) -> List[VSCExtensionDefinition]:
         recommendations = self.search_top_n(totalrecommended)
-        recommended_old = self.get_recommendations_old(destination)
+        recommended_old: Union[bool, Set[str]] = self.get_recommendations_tgz(destination)
 
-        for extension in recommendations:
+        if recommended_old:
             # If the extension has already been found then prevent it from being collected again when processing the old recommendation list
-            if extension.identity in recommended_old:
-                recommended_old.remove(extension.identity)
+            recommended_old: Set[str] = recommended_old.difference(map(lambda ext: ext.identity, recommendations))
 
-        for packagename in recommended_old:
-            extension = self.search_by_extension_name(packagename)
-            if extension:
-                recommendations.append(extension)
-            else:
-                log.debug(
-                    f"get_recommendations failed finding a recommended extension by name for {packagename}. This extension has likely been removed."
-                )
+            for packagename in recommended_old:
+                extension = self.search_by_extension_name(packagename)
+                if extension:
+                    recommendations.append(extension)
 
         for recommendation in recommendations:
             recommendation.set_recommended()
@@ -414,40 +453,61 @@ class VSCMarketplace:
                     recommendation.versions = extension.get_latest_release_versions()
         return recommendations
 
-    def get_recommendations_old(self, destination: pathlib.Path) -> Union[bool, Set[str]]:
-        result = requests.get(utils.URL_RECOMMENDATIONS, allow_redirects=True, timeout=utils.TIMEOUT)
-        if result.status_code != 200:
+    @staticmethod
+    def get_recommendations_tgz(destination: pathlib.Path) -> Union[bool, Set[str]]:
+        try:
+            result = requests.get(utils.URL_RECOMMENDATIONS, allow_redirects=True, timeout=utils.TIMEOUT)
+        except Exception as err:
             log.warning(
-                f"get_recommendations failed accessing url {utils.URL_RECOMMENDATIONS}, unhandled status code {result.status_code}"
+                f"get_recommendations failed accessing url {utils.URL_RECOMMENDATIONS}, unhandled error: {str(err)}"
             )
             return False
         try:
-            jresult = result.json()
-        except requests.exceptions.JSONDecodeError as err:
-            log.warning(f"Failed to decode json from recommendations URL. Response body: {result.text}")
+            result.raise_for_status()
+        except requests.HTTPError as err:
+            log.warning(
+                f"get_recommendations failed accessing url {utils.URL_RECOMMENDATIONS}, unhandled error {str(err)}. \n\nTreating as unavailable"
+            )
+            return False
+
+        try:
+            jresult = orjson.loads(result.content)
+        except orjson.JSONDecodeError as err:
+            log.warning(
+                f"Failed to decode json from recommendations URL. \nTreating as unavailable \n Unhandled error {str(err)}"
+            )
             return False
 
         utils.write_json(destination.joinpath("recommendations.json"), jresult)
 
-        # To SET to remove duplicates
-        packages: Set[str] = set()
-        for recommendation in jresult["workspaceRecommendations"]:
-            packages.update(recommendation["recommendations"])
+        return {*itertools.chain.from_iterable(r["recommendations"] for r in jresult["workspaceRecommendations"])}
 
-        return packages
-
+    @staticmethod
     def get_malicious(
-        self, destination: pathlib.Path, extensions: Optional[Dict[str, VSCExtensionDefinition]] = None
+        destination: pathlib.Path,
+        extensions: Optional[Dict[str, VSCExtensionDefinition]] = None,
     ) -> None:
-        result = requests.get(utils.URL_MALICIOUS, allow_redirects=True, timeout=utils.TIMEOUT)
-        if result.status_code != 200:
+        try:
+            result = requests.get(utils.URL_MALICIOUS, allow_redirects=True, timeout=utils.TIMEOUT)
+        except Exception as err:
+            log.warning(f"get_malicious failed accessing url {utils.URL_MALICIOUS}, unhandled error: {str(err)}")
+            return False
+        try:
+            result.raise_for_status()
+        except requests.HTTPError as err:
             log.warning(
-                f"get_malicious failed accessing url {utils.URL_MALICIOUS}, unhandled status code {result.status_code}"
+                f"get_malicious failed accessing url {utils.URL_MALICIOUS}, unhandled error {str(err)}. \n\nTreating as unavailable"
             )
             return False
-        # Remove random utf-8 nbsp from server response
-        stripped = result.content.decode("utf-8", "ignore").replace("\xa0", "")
-        jresult = json.loads(stripped)
+
+        try:
+            jresult = orjson.loads(result.content)
+        except orjson.JSONDecodeError as err:
+            log.warning(
+                f"Failed to decode json from malicious URL. \nTreating as unavailable \n Unhandled error {str(err)}"
+            )
+            return False
+
         utils.write_json(destination.joinpath("malicious.json"), jresult)
 
         if not extensions:
@@ -495,7 +555,8 @@ class VSCMarketplace:
             "criteria": [
                 self._build_query_filter_criteria(utils.FilterType.Target, "Microsoft.VisualStudio.Code"),
                 self._build_query_filter_criteria(
-                    utils.FilterType.ExcludeWithFlags, str(int(utils.QueryFlags.Unpublished))
+                    utils.FilterType.ExcludeWithFlags,
+                    str(int(utils.QueryFlags.Unpublished)),
                 ),
             ],
         }
@@ -529,7 +590,15 @@ class VSCMarketplace:
 
         while count <= total:
             pageNumber = pageNumber + 1
-            query = self._build_query(filtertype, filtervalue, pageNumber, pageSize, queryFlags, sortBy, sortOrder)
+            query = self._build_query(
+                filtertype,
+                filtervalue,
+                pageNumber,
+                pageSize,
+                queryFlags,
+                sortBy,
+                sortOrder,
+            )
             result = None
             for i in range(10):
                 if i > 0:
@@ -552,9 +621,9 @@ class VSCMarketplace:
                 log.info("Failed 10 attempts to query marketplace. Giving up.")
                 break
             try:
-                jresult = result.json()
-            except Exception as err:
-                log.info("Failed parsing json from marketplace api query")
+                jresult = orjson.loads(result.content)
+            except orjson.JSONDecodeError as err:
+                log.info(f"Failed parsing json from marketplace api query. \n Unhandled error {str(err)}")
                 continue
 
             count = count + pageSize
