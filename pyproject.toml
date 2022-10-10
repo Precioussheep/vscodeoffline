@@ -29,12 +29,6 @@ server = [
     "gunicorn",
     "watchdog",
 ]
-server_async = [
-    "aiopath",
-    "aiofiles",
-    "falcon",
-    "uvicorn[standard]"
-]
 
 [tool.setuptools.packages.find]
 where = ["."]  # list of folders that contain the packages (["."] by default)
