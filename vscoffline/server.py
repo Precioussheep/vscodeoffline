@@ -8,8 +8,6 @@ from wsgiref import simple_server
 
 import falcon
 from logzero import logger as log
-from watchdog.events import DirModifiedEvent, FileModifiedEvent, FileSystemEventHandler
-from watchdog.observers.polling import PollingObserver
 
 import vscoffline.utils as utils
 
@@ -260,7 +258,7 @@ class VSCGallery:
     @staticmethod
     def _sort(result: List[Dict[str, Any]], sortby: int, sortorder: int) -> None:
         # NOTE: modifies result in place
-        rev = sortorder == utils.SortOrder.Ascending
+        rev = not sortorder == utils.SortOrder.Ascending
 
         if sortby == utils.SortBy.PublisherName:
             rev = not rev
@@ -375,7 +373,6 @@ class VSCDirectoryBrowse:
         self.root = root
 
     def on_get(self, req: falcon.Request, resp: falcon.Response) -> None:
-        start = time.time()
         requested_path = self.root.joinpath(req.get_param("path", required=True))
         # Check the path requested
         if os.path.commonpath((requested_path.absolute(), self.root.absolute())) != str(self.root.absolute()):
@@ -383,9 +380,9 @@ class VSCDirectoryBrowse:
             return
         resp.content_type = "text/html"
         # Load template and replace variables
-        resp.text = STATIC_BROWSE_HTML
-        resp.text = resp.text.replace("{PATH}", str(requested_path.absolute()))
-        resp.text = resp.text.replace("{CONTENT}", self.simple_dir_browse_response(requested_path))
+        resp.text = STATIC_BROWSE_HTML.replace("{PATH}", str(requested_path.absolute())).replace(
+            "{CONTENT}", self.simple_dir_browse_response(requested_path)
+        )
         resp.status = falcon.HTTP_200
 
     @staticmethod
@@ -396,19 +393,6 @@ class VSCDirectoryBrowse:
         for item in utils.files_in_folder(path):
             response += f'f <a href="{item.path}">{item.name}</a><br />'
         return response
-
-
-class ArtifactChangedHandler(FileSystemEventHandler):
-
-    __slots__ = ["gallery"]
-
-    def __init__(self, gallery: VSCGallery) -> None:
-        self.gallery = gallery
-
-    def on_modified(self, event: Union[DirModifiedEvent, FileModifiedEvent]) -> None:
-        if "updated.json" in event.src_path:
-            log.info("Detected updated.json change, updating extension gallery")
-            self.gallery.update_state()
 
 
 if not ARTIFACTS_ASPATH.exists():
@@ -423,18 +407,14 @@ if not ARTIFACTS_EXTENSIONS_ASPATH.exists():
     log.warning(f"Extensions artifact directory missing {utils.ARTIFACTS_EXTENSIONS}. Cannot proceed.")
     exit(-1)
 
-vscgallery = VSCGallery()
-observer = PollingObserver()
-observer.schedule(ArtifactChangedHandler(vscgallery), "/artifacts/", recursive=False)
-observer.start()
-
+gallery = VSCGallery()
 
 application = falcon.App(cors_enable=True)
 application.add_route("/api/update/{platform}/{buildquality}/{commitid}", VSCUpdater())
 application.add_route("/commit:{commitid}/{platform}/{buildquality}", VSCBinaryFromCommitId())
 application.add_route("/extensions/workspaceRecommendations.json.gz", VSCRecommendations())  # Why no compress??
 application.add_route("/extensions/marketplace.json", VSCMalicious())
-application.add_route("/_apis/public/gallery/extensionquery", vscgallery)
+application.add_route("/_apis/public/gallery/extensionquery", gallery)
 application.add_route("/browse", VSCDirectoryBrowse(ARTIFACTS_ASPATH))
 application.add_route("/", VSCIndex())
 application.add_static_route("/artifacts/", "/artifacts/")

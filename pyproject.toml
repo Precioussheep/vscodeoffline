@@ -22,12 +22,12 @@ dev = [
     "black",
     "falcon",
     "gunicorn",
-    "watchdog",
+    "gevent",
 ]
 server = [
     "falcon",
     "gunicorn",
-    "watchdog",
+    "gevent",
 ]
 
 [tool.setuptools.packages.find]
