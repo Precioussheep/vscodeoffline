@@ -1,10 +1,13 @@
 [build-system]
-requires = [ "setuptools>=61.0" ]
+requires = [ "setuptools>=61.0", "setuptools-git-versioning" ]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools-git-versioning]
+enabled = true
 
 [project]
 name = "vscoffline"
-version = "0.0.0"
+dynamic = ["version"]
 description = "A VSCode Binary & Extension Mirroring & Rehosting tool"
 license = { text = "MIT" }
 readme = "README.md"
