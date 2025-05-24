@@ -1,12 +1,15 @@
 build:
-	pip install -r vscoffline/vscsync/requirements.txt
-	pip install -r vscoffline/vscgallery/requirements.txt
+	pip install --no-cache-dir --compile .
+	pip install --no-cache-dir --compile .[server]
+
+dev: 
+	pip install --no-cache-dir --compile .[dev]
 
 docker:
-	docker-compose build
+	docker compose build
 
 podman:
-	podman-compose build
+	podman compose build
 
 run:
-	docker-compose up --build -d
+	docker compose up --build -d

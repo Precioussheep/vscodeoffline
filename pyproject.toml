@@ -16,8 +16,7 @@ requires-python = ">=3.10"
 dependencies = [
     "requests",
     "pytimeparse",
-    "orjson",
-    "caio==0.9.17"
+    "orjson"
 ]
 
 [project.optional-dependencies]
@@ -26,13 +25,15 @@ dev = [
     "fastapi",
     "uvicorn[standard]",
     "aiopath",
-    "aiofiles"
+    "aiofiles",
+    "caio==0.9.17"
 ]
 server = [
     "fastapi",
     "uvicorn[standard]",
     "aiopath",
-    "aiofiles"
+    "aiofiles",
+    "caio==0.9.17"
 ]
 
 [tool.setuptools.packages.find]
