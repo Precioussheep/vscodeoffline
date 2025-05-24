@@ -207,7 +207,6 @@ if __name__ == "__main__":
         action="store_true",
         help="Show debug output",
         default=False,
-        type=bool,
     )
     parser.add_argument(
         "--logfile",

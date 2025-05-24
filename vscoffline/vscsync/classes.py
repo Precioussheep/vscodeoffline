@@ -264,7 +264,7 @@ class VSCExtensionDefinition:
                 "Microsoft.VisualStudio.Code.Manifest",
             )
             manifest = utils.load_json(manifestpath)
-            if not (isinstance(manifest, dict) and "extensionPack" not in manifest):
+            if not (isinstance(manifest, dict) and "extensionPack" in manifest):
                 log.debug(
                     "Loaded Json manifest for extension version is invalid or no bonus extensions found. Continuing"
                 )
@@ -665,11 +665,17 @@ def get_latest_versions(insider: bool = False) -> dict[str, VSCUpdateDefinition]
         # TODO: put the exceptions elsewhere
         if quality == "insider" and not insider:
             continue
-        elif platform == "win32" and not arch:
+        # windows doesn't support armhf nor web
+        elif platform == "win32" and (arch == "armhf" or buildtype == "web"):
             continue
-        elif platform == "darwin" and (arch or buildtype):
+        # mac is a single binary per platform
+        elif platform.startswith("darwin") and (arch or buildtype):
             continue
-        elif ("linux" in platform or platform == "cli-alpine") and (not arch or buildtype):
+        elif platform == "server-linux-alpine" and arch:
+            continue
+        elif platform == "cli-alpine" and (not arch or arch == "armhf" or buildtype):
+            continue
+        elif "linux" in platform and (not arch or buildtype):
             continue
         ver = VSCUpdateDefinition(platform, arch, buildtype, quality, auto_check_update=True)
         log.info(ver)

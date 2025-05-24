@@ -39,12 +39,12 @@ ADD https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js /static/
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=2 \
     CMD curl -f -k http://$HOST:$PORT || exit 1
 
-COPY --chmod=755 <<EOF /entrypoint.sh
+COPY --chmod=755 <<EOF /app/entrypoint.sh
 #!/usr/bin/env bash
 set -e
-uvicorn --host $HOST \
-    --port $PORT \
-    --timeout-keep-alive $TIMEOUT \
+uvicorn --host \$HOST \
+    --port \$PORT \
+    --timeout-keep-alive \$TIMEOUT \
     server:app
 EOF
 ENTRYPOINT ["/entrypoint.sh"]

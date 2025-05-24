@@ -11,24 +11,24 @@ import orjson
 import vscoffline.vscsync.models as sync_models
 
 PLATFORMS = [
-    "win32-x64",
+    "win32",
     "linux",
     "linux-deb",
     "linux-rpm",
     "darwin",
-    "darwin-arm64",
     "darwin-universal",
     "linux-snap",
     "server-linux",
     "server-linux-legacy",
+    "server-linux-alpine",
     "cli-alpine",
 ]
-ARCHITECTURES = ["", "x64", "arm64", "armhf", "alpine"]
+ARCHITECTURES = ["", "x64", "arm64", "armhf"]
 BUILDTYPES = ["", "archive", "user", "web"]
 QUALITIES = ["stable", "insider"]
 
 URL_BINUPDATES = "https://update.code.visualstudio.com/api/update/"
-URL_RECOMMENDATIONS = "https://main.vscode-cdn.net/extensions/marketplace.json"
+URL_RECOMMENDATIONS = "https://main.vscode-cdn.net/extensions/workspaceRecommendations.json.gz"
 URL_MARKETPLACEQUERY = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
 URL_MALICIOUS = "https://main.vscode-cdn.net/extensions/marketplace.json"
 
