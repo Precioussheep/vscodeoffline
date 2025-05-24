@@ -1,0 +1,40 @@
+[build-system]
+requires = [ "setuptools>=61.0", "setuptools-git-versioning" ]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools-git-versioning]
+enabled = true
+
+[project]
+name = "vscoffline"
+dynamic = ["version"]
+description = "A VSCode Binary & Extension Mirroring & Rehosting tool"
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = [
+    "requests",
+    "pytimeparse",
+    "orjson",
+    "caio==0.9.17"
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "fastapi",
+    "uvicorn[standard]",
+    "aiopath",
+    "aiofiles"
+]
+server = [
+    "fastapi",
+    "uvicorn[standard]",
+    "aiopath",
+    "aiofiles"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]  # list of folders that contain the packages (["."] by default)
+include = ["vscoffline*"]  # package names should match these glob patterns (["*"] by default)

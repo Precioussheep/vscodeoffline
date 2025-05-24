@@ -1,34 +1,27 @@
-version: '3'
 services:
-
   vscsync:
-    image: lolinternet/vscsync:latest
+    image: vscsync:latest
     build:
       context: ./
-      dockerfile: ./vscoffline/vscsync/Dockerfile
-    dns:
-      - 1.1.1.1
+      dockerfile: ./_resources/sync.Dockerfile
     volumes:
-      - ./artifacts/:/artifacts/
+      - ./artifacts/:/artifacts/ # change for artifacts location
     environment:
       - SYNCARGS=--sync
       # Enable to sync all extensions
       #- SYNCARGS=--syncall
       # Enable a logfile
       #- SYNCARGS=--sync --logfile /logs/sync.log
-
   vscgallery:
-    image: lolinternet/vscgallery:latest
+    image: vscgallery:latest
     build:
       context: ./
-      dockerfile: ./vscoffline/vscgallery/Dockerfile
+      dockerfile: ./_resources/server.Dockerfile
     volumes:
-      - ./artifacts/:/artifacts/
-      # Enable for custom SSL certs
-      #- ./vscoffline/vscgallery/ssl/:/opt/vscoffline/vscgallery/ssl # Enable for custom SSL certs
+      - ./artifacts/:/artifacts/ # change for artifacts location
       # Enable to store logfiles in its own folder
       # ./logs/:/logs/
     ports:
-      - 443:443
+      - 9000:9000
     environment:
-      - BIND=0.0.0.0:443
+      - BIND=0.0.0.0:9000
