@@ -191,7 +191,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--vscode-version",
         dest="version",
-        default="1.89.0",
+        default="1.100.1",
         help="VSCode version to search extensions as.",
     )
     parser.add_argument(

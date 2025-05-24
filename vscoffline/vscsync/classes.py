@@ -107,12 +107,12 @@ class VSCUpdateDefinition:
             return False
 
         self.updateurl = jresult["url"]
-        self.name = jresult["name"]
-        self.version = jresult["version"]
-        self.productVersion = jresult["productVersion"]
-        self.hash = jresult["hash"]
-        self.timestamp = jresult["timestamp"]
-        self.sha256hash = jresult["sha256hash"]
+        self.name: str = jresult["name"]
+        self.version: str = jresult["version"]
+        self.productVersion: str = jresult["productVersion"]
+        self.hash: str = jresult["hash"]
+        self.timestamp: str = jresult["timestamp"]
+        self.sha256hash: str = jresult["sha256hash"]
 
         self.supportsFastUpdate = False
         if "supportsFastUpdate" in jresult:
@@ -514,6 +514,7 @@ class VSCMarketplace:
             log.debug(f"Malicious extension {malicious}")
             if malicious in extensions.keys():
                 log.warning(f"Preventing malicious extension {malicious} from being downloaded")
+                # dirty inplace deletion of the `extensions` dict passed through to this function
                 del extensions[malicious]
 
     def _build_query(

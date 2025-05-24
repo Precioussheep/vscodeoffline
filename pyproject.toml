@@ -39,3 +39,7 @@ server = [
 [tool.setuptools.packages.find]
 where = ["."]  # list of folders that contain the packages (["."] by default)
 include = ["vscoffline*"]  # package names should match these glob patterns (["*"] by default)
+
+[tool.ruff]
+line-length = 119
+indent-width = 4
