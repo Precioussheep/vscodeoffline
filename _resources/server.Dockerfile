@@ -40,7 +40,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=2 \
     CMD curl -f -k http://$HOST:$PORT || exit 1
 
 COPY --chmod=755 <<EOF /app/entrypoint.sh
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 set -e
 uvicorn --host \$HOST \
     --port \$PORT \

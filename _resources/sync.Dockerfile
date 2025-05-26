@@ -28,7 +28,7 @@ WORKDIR /app
 
 COPY ./vscoffline/sync.py /app/sync.py
 COPY --chmod=755 <<EOF /app/entrypoint.sh
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 set -e
 python3 /app/sync.py --artifacts \$ARTIFACTS \$SYNCARGS
 EOF
