@@ -1,11 +1,11 @@
 import asyncio
+import logging as log
 import os
 import time
 from typing import Any, Dict, List, Union
 from packaging.version import Version
 
 import aiopath
-from logzero import logger as log
 from pydantic import BaseModel
 
 import vscoffline.utils as utils

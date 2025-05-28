@@ -26,8 +26,6 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PORT=9000 \
     TIMEOUT=180
 
-WORKDIR /app
-
 COPY ./vscoffline/vscgallery /app/vscgallery
 COPY ./vscoffline/server.py /app/server.py
 
@@ -37,14 +35,11 @@ ADD https://fastapi.tiangolo.com/img/favicon.png /static/favicon.png
 ADD https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js /static/redoc.standalone.js
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=2 \
-    CMD curl -f -k http://$HOST:$PORT || exit 1
+    CMD wget -O - http://$HOST:$PORT || exit 1
 
-COPY --chmod=755 <<EOF /app/entrypoint.sh
-#!/usr/bin/env sh
-set -e
-uvicorn --host \$HOST \
-    --port \$PORT \
-    --timeout-keep-alive \$TIMEOUT \
+WORKDIR /app
+SHELL [ "/bin/sh", "-c" ]
+CMD uvicorn --host $HOST \
+    --port $PORT \
+    --timeout-keep-alive $TIMEOUT \
     server:app
-EOF
-ENTRYPOINT ["/entrypoint.sh"]

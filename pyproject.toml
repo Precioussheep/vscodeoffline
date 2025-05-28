@@ -26,14 +26,16 @@ dev = [
     "uvicorn[standard]",
     "aiopath",
     "aiofiles",
-    "caio==0.9.17"
+    "caio==0.9.17",
+    "packaging"
 ]
 server = [
     "fastapi",
     "uvicorn[standard]",
     "aiopath",
     "aiofiles",
-    "caio==0.9.17"
+    "caio==0.9.17",
+    "packaging"
 ]
 
 [tool.setuptools.packages.find]

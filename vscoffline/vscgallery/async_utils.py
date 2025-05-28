@@ -3,12 +3,12 @@ A collection of async utils for fastapi
 """
 
 import hashlib
+import logging as log
 from typing import Any
 
 import aiofiles
 import aiopath
 import orjson
-from logzero import logger as log
 
 
 async def async_load_json(filepath: aiopath.AsyncPath) -> list[Any] | dict[str, Any]:

@@ -24,12 +24,8 @@ ENV PATH="/opt/venv/bin:$PATH" \
     ARTIFACTS=/artifacts \
     SYNCARGS=--sync
 
-WORKDIR /app
-
 COPY ./vscoffline/sync.py /app/sync.py
-COPY --chmod=755 <<EOF /app/entrypoint.sh
-#!/usr/bin/env sh
-set -e
-python3 /app/sync.py --artifacts \$ARTIFACTS \$SYNCARGS
-EOF
-ENTRYPOINT ["/app/entrypoint.sh"]
+
+WORKDIR /app
+SHELL [ "/bin/sh", "-c" ]
+CMD python3 /app/sync.py --artifacts $ARTIFACTS $SYNCARGS
