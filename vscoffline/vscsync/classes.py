@@ -139,6 +139,12 @@ class VSCUpdateDefinition:
         if destfile.exists() and utils.hash_file_and_check(destfile, self.sha256hash):
             log.debug(f"Previously downloaded {self}")
             return True
+        
+        # Some old releases (e.g. stable/win32 - Version: 1.83.1) still reference the old CDN and fail the download,
+        # so these are skipped.
+        if self.updateurl.startswith("https://az764295.vo.msecnd.net"):
+            log.info(f"Skipping old version, no longer available: {self}")
+            return
 
         log.info(f"Downloading {self} to {destfile}")
         try:
@@ -428,18 +434,8 @@ class VSCMarketplace:
             log.warning(f"search_release_by_extension_id failed {extensionid}")
             return None
 
-    def get_recommendations(self, destination: pathlib.Path, totalrecommended: int) -> list[VSCExtensionDefinition]:
+    def get_recommendations(self, totalrecommended: int) -> list[VSCExtensionDefinition]:
         recommendations = self.search_top_n(totalrecommended)
-        recommended_old = self.get_recommendations_tgz(destination)
-
-        if recommended_old:
-            # If the extension has already been found then prevent it from being collected again when processing the old recommendation list
-            recommended_old: set[str] = recommended_old.difference(map(lambda ext: ext.identity, recommendations))
-
-            for packagename in recommended_old:
-                extension = self.search_by_extension_name(packagename)
-                if extension:
-                    recommendations.append(extension)
 
         for recommendation in recommendations:
             recommendation.set_recommended()
@@ -449,35 +445,6 @@ class VSCMarketplace:
                 if extension:
                     recommendation.versions = extension.get_latest_release_versions()
         return recommendations
-
-    @staticmethod
-    def get_recommendations_tgz(destination: pathlib.Path) -> set[str]:
-        try:
-            result = requests.get(utils.URL_RECOMMENDATIONS, allow_redirects=True, timeout=utils.TIMEOUT)
-        except Exception as err:
-            log.warning(
-                f"get_recommendations failed accessing url {utils.URL_RECOMMENDATIONS}, unhandled error: {str(err)}"
-            )
-            return set()
-        try:
-            result.raise_for_status()
-        except requests.HTTPError as err:
-            log.warning(
-                f"get_recommendations failed accessing url {utils.URL_RECOMMENDATIONS}, unhandled error {str(err)}. \n\nTreating as unavailable"
-            )
-            return set()
-
-        try:
-            jresult = orjson.loads(result.content)
-        except orjson.JSONDecodeError as err:
-            log.warning(
-                f"Failed to decode json from recommendations URL. \nTreating as unavailable \n Unhandled error {str(err)}"
-            )
-            return set()
-
-        utils.write_json(destination.joinpath("recommendations.json"), jresult)
-
-        return {*itertools.chain.from_iterable(r["recommendations"] for r in jresult["workspaceRecommendations"])}
 
     @staticmethod
     def get_malicious(

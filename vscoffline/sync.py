@@ -61,7 +61,7 @@ def main(config_cls: VSCSyncConfig) -> None:
 
     if config_cls.checkextensions:
         log.info("Syncing VS Code Recommended Extensions")
-        recommended = mp.get_recommendations(config_cls.artifactdir.absolute(), config_cls.totalrecommended)
+        recommended = mp.get_recommendations(config_cls.totalrecommended)
         for item in recommended:
             extensions[item.identity] = item
         did_something = True

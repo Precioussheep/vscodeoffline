@@ -22,6 +22,7 @@ PLATFORMS = [
     "server-linux-legacy",
     "server-linux-alpine",
     "cli-alpine",
+    "server-darwin",
 ]
 ARCHITECTURES = ["", "x64", "arm64", "armhf"]
 BUILDTYPES = ["", "archive", "user", "web"]
