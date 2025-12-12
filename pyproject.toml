@@ -26,6 +26,7 @@ dev = [
     "uvicorn[standard]",
     "aiopath",
     "aiofiles",
+    "caio==0.9.17",
     "packaging"
 ]
 server = [
@@ -33,6 +34,7 @@ server = [
     "uvicorn[standard]",
     "aiopath",
     "aiofiles",
+    "caio==0.9.17",
     "packaging"
 ]
 

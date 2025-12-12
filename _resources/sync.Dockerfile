@@ -1,4 +1,4 @@
-FROM python:3.13-alpine AS build
+FROM python:3.14-alpine AS build
 
 WORKDIR /opt/build
 
@@ -11,7 +11,7 @@ COPY . .
 RUN python3 -m pip install --no-cache-dir --upgrade pip wheel setuptools && \
     python3 -m pip install --no-cache-dir --compile .
 
-FROM python:3.13-alpine AS deploy
+FROM python:3.14-alpine AS deploy
 
 # upgrade image &
 # setup default artifacts location

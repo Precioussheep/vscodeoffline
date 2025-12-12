@@ -1,4 +1,4 @@
-FROM python:3.13-alpine AS build
+FROM python:3.14-alpine AS build
 
 RUN apk --no-cache add libc-dev binutils 
 
@@ -13,7 +13,7 @@ COPY . .
 RUN python3 -m pip install --no-cache-dir --upgrade pip wheel setuptools && \
     python3 -m pip install --no-cache-dir --compile .[server]
 
-FROM python:3.13-alpine AS deploy
+FROM python:3.14-alpine AS deploy
 
 RUN apk --no-cache upgrade && \
     apk --no-cache add libc-dev binutils && \
