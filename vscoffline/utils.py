@@ -4,13 +4,13 @@ import logging as log
 import os
 import pathlib
 from enum import IntFlag
-from typing import Any
+from typing import Any, Final
 
 import orjson
 
 import vscoffline.vscsync.models as sync_models
 
-PLATFORMS = [
+PLATFORMS: tuple[str, ...] = (
     "win32",
     "linux",
     "linux-deb",
@@ -23,22 +23,24 @@ PLATFORMS = [
     "server-linux-alpine",
     "cli-alpine",
     "server-darwin",
-]
-ARCHITECTURES = ["", "x64", "arm64", "armhf"]
-BUILDTYPES = ["", "archive", "user", "web"]
-QUALITIES = ["stable", "insider"]
+)
+ARCHITECTURES: tuple[str, ...] = ("", "x64", "arm64", "armhf")
+BUILDTYPES: tuple[str, ...] = ("", "archive", "user", "web")
+QUALITIES: tuple[str, ...] = ("stable", "insider")
 
-URL_BINUPDATES = "https://update.code.visualstudio.com/api/update/"
-URL_RECOMMENDATIONS = "https://main.vscode-cdn.net/extensions/workspaceRecommendations.json.gz"
-URL_MARKETPLACEQUERY = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
-URL_MALICIOUS = "https://main.vscode-cdn.net/extensions/marketplace.json"
+URL_BINUPDATES: Final[str] = "https://update.code.visualstudio.com/api/update/"
+URL_RECOMMENDATIONS: Final[str] = "https://main.vscode-cdn.net/extensions/workspaceRecommendations.json.gz"
+URL_MARKETPLACEQUERY: Final[str] = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
+URL_MALICIOUS: Final[str] = "https://main.vscode-cdn.net/extensions/marketplace.json"
+URLROOT: Final[str] = "https://update.code.visualstudio.com"
 
-URLROOT = "https://update.code.visualstudio.com"
-ARTIFACTS = "/artifacts/"
-ARTIFACTS_INSTALLERS = "/artifacts/installers"
-ARTIFACTS_EXTENSIONS = "/artifacts/extensions"
-ARTIFACT_RECOMMENDATION = "/artifacts/recommendations.json"
-ARTIFACT_MALICIOUS = "/artifacts/malicious.json"
+# bit weird that we create str reps to then create anyio.Paths at runtime,
+# but we're here now
+ARTIFACTS: Final[str] = "/artifacts/"
+ARTIFACTS_INSTALLERS: Final[str] = "/artifacts/installers"
+ARTIFACTS_EXTENSIONS: Final[str] = "/artifacts/extensions"
+ARTIFACT_RECOMMENDATION: Final[str] = "/artifacts/recommendations.json"
+ARTIFACT_MALICIOUS: Final[str] = "/artifacts/malicious.json"
 
 TIMEOUT = 12
 

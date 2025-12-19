@@ -3,7 +3,7 @@ import pathlib
 import logging as log
 import urllib.parse
 
-import aiopath
+import anyio
 import fastapi
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
@@ -34,11 +34,11 @@ if not pathlib.Path(utils.ARTIFACTS_EXTENSIONS).exists():
     log.warning(f"Extensions artifact directory missing {utils.ARTIFACTS_EXTENSIONS}. Cannot proceed.")
     exit(-1)
 
-ARTIFACTS_ASPATH = aiopath.AsyncPath(utils.ARTIFACTS)
-ARTIFACTS_INSTALLERS_ASPATH = aiopath.AsyncPath(utils.ARTIFACTS_INSTALLERS)
-ARTIFACTS_EXTENSIONS_ASPATH = aiopath.AsyncPath(utils.ARTIFACTS_EXTENSIONS)
-ARTIFACT_RECOMMENDATION_ASPATH = aiopath.AsyncPath(utils.ARTIFACT_RECOMMENDATION)
-ARTIFACT_MALICIOUS_ASPATH = aiopath.AsyncPath(utils.ARTIFACT_MALICIOUS)
+ARTIFACTS_ASPATH = anyio.Path(utils.ARTIFACTS)
+ARTIFACTS_INSTALLERS_ASPATH = anyio.Path(utils.ARTIFACTS_INSTALLERS)
+ARTIFACTS_EXTENSIONS_ASPATH = anyio.Path(utils.ARTIFACTS_EXTENSIONS)
+ARTIFACT_RECOMMENDATION_ASPATH = anyio.Path(utils.ARTIFACT_RECOMMENDATION)
+ARTIFACT_MALICIOUS_ASPATH = anyio.Path(utils.ARTIFACT_MALICIOUS)
 
 # TODO: Don't read from static location
 with open("./vscgallery/content/index.html", "r") as f:
@@ -69,6 +69,7 @@ app.add_middleware(
 
 
 # optional offline redoc/swagger docs rehosting for api
+# can't async here due to not being function limited
 if pathlib.Path("/static").is_dir():
     app.mount("/static", StaticFiles(directory="/static"), name="static")
 
@@ -98,7 +99,7 @@ app.mount("/artifacts", StaticFiles(directory="/artifacts/", html=True), name="a
 
 @app.get("/api/update/{platform}/{buildquality}/{commitid}")
 async def get_update_request(platform: str, buildquality: str, commitid: str):
-    update_dir: aiopath.AsyncPath = ARTIFACTS_INSTALLERS_ASPATH.joinpath(platform, buildquality)
+    update_dir: anyio.Path = ARTIFACTS_INSTALLERS_ASPATH.joinpath(platform, buildquality)
     if not await update_dir.exists():
         log.warning(
             f"Update build directory does not exist at {await update_dir.absolute()}. Check sync or sync configuration."
@@ -208,7 +209,7 @@ async def get_index():
 @app.get("/browse", include_in_schema=False)
 async def get_browse(path: str = ""):
     possible_path = await VSCBROWSE.path_valid(path)
-    if not isinstance(possible_path, aiopath.AsyncPath):
+    if not isinstance(possible_path, anyio.Path):
         raise fastapi.HTTPException(403)
 
     resp_text = STATIC_BROWSE_HTML.replace("{PATH}", str(await possible_path.absolute())).replace(

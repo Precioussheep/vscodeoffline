@@ -3,7 +3,6 @@ import logging
 import pathlib
 import time
 import logging as log
-from typing import Dict, List
 
 import vscoffline.utils as utils
 import vscoffline.vscsync.classes as vscsync_classes
@@ -13,7 +12,7 @@ from vscoffline.vscsync.models import VSCSyncConfig
 def main(config_cls: VSCSyncConfig) -> None:
     did_something = False
     if not config_cls.skipbinaries:
-        versions: Dict[str, vscsync_classes.VSCUpdateDefinition] = {}
+        versions: dict[str, vscsync_classes.VSCUpdateDefinition] = {}
         if config_cls.checkbinaries:
             log.info("Syncing VS Code Update Versions")
             versions = vscsync_classes.get_latest_versions(config_cls.checkinsider)
@@ -29,7 +28,7 @@ def main(config_cls: VSCSyncConfig) -> None:
                         versions[idkey].save_state(config_cls.artifactdir_installers)
             did_something = True
 
-    extensions: Dict[str, vscsync_classes.VSCExtensionDefinition] = {}
+    extensions: dict[str, vscsync_classes.VSCExtensionDefinition] = {}
     mp = vscsync_classes.VSCMarketplace(config_cls.checkinsider, config_cls.prerelease, config_cls.version)
 
     if config_cls.checkspecified:
@@ -75,7 +74,7 @@ def main(config_cls: VSCSyncConfig) -> None:
     if config_cls.updateextensions:
         log.info(f"Checking and Downloading Updates for {len(extensions)} Extensions")
         count = 0
-        bonus: List[vscsync_classes.VSCExtensionDefinition] = []
+        bonus: list[vscsync_classes.VSCExtensionDefinition] = []
         for identity in extensions:
             log.debug(f"Fetching extension: {identity}")
             if count % 100 == 0:

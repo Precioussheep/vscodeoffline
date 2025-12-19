@@ -1,11 +1,10 @@
 import asyncio
 import logging as log
-import os
 import time
-from typing import Any, Dict, List, Union
+from typing import Any
 from packaging.version import Version
 
-import aiopath
+import anyio
 from pydantic import BaseModel
 
 import vscoffline.utils as utils
@@ -15,37 +14,59 @@ STATIC_STAT_BUILDER = {"averagerating": 0, "install": 0, "weightedRating": 0}
 
 
 class ExtensionQuery(BaseModel):
-    filters: List[Dict[str, Any]]
-    flags: Union[str, int]
-    assetTypes: List[Any]
+    filters: list[dict[str, Any]]
+    flags: str | int
+    assetTypes: list[Any]
 
 
 class VSCDirectoryBrowse:
     __slots__ = ["root"]
 
-    def __init__(self, root: aiopath.AsyncPath) -> None:
-        if not isinstance(root, aiopath.AsyncPath):
-            self.root = aiopath.AsyncPath(root)
+    def __init__(self, root: anyio.Path) -> None:
+        if not isinstance(root, anyio.Path):
+            self.root = anyio.Path(root)
         self.root = root
 
-    async def path_valid(self, path: str) -> Union[aiopath.AsyncPath, bool]:
+    async def path_valid(self, path: str) -> anyio.Path | bool:
+        """
+        path_valid: determine if the requested path is valid compred to the
+        root path provided by the application - protecting somewhat against
+        traversal attacks (ie: browse?path=../../etc/passwd)
+
+        :param path: the requested path
+        :type path: str
+        :return: Either the path to return content for, or False if an invalid path
+        :rtype: Path | bool
+        """
         requested_path = self.root.joinpath(path)
         # Check the path requested
-        if os.path.commonpath((await requested_path.absolute(), await self.root.absolute())) != str(
-            await self.root.absolute()
-        ):
+        # used os.path.commonpath before but we know the check we want to perform here
+        # and removes an `os` import (likely imported eagerly in one of our imports, but we're here now)
+        if not (str(await requested_path.absolute())).startswith(str(await self.root.absolute())):
             return False
         return requested_path
 
     @staticmethod
-    async def simple_dir_browse_response(path: aiopath.AsyncPath) -> str:
-        response = ""
-        for item in await autils.async_folders_in_folder(path):
-            response += f'd <a href="/browse?path={await item.absolute()}">{item.name}</a><br />'
-        for item in await autils.async_files_in_folder(path):
-            response += f'f <a href="{await item.absolute()}">{item.name}</a><br />'
-        return response
+    async def simple_dir_browse_response(path: anyio.Path) -> str:
+        """
+        simple_dir_browse_response
 
+        Generate browse paths in html based on a[n] (async) path.iterdir()
+        for files and folders.
+
+        :param path: The input path to generate html for.
+        :type path: anyio.Path
+        :return: Response html of the paths found, formatted for file downloads & browsing as required.
+        :rtype: str
+        """
+        folder_list: list[str] = []
+        files_list: list[str] = []
+        async for item in path.iterdir():
+            if await item.is_dir():
+                folder_list.append(f'd <a href="/browse?path={await item.absolute()}">{item.name}</a><br />')
+            elif await item.is_file():
+                folder_list.append(f'f <a href="{await item.absolute()}">{item.name}</a><br />')
+        return "\n".join(folder_list) + "\n".join(files_list)
 
 class VSCGallery:
     __slots__ = [
@@ -58,12 +79,12 @@ class VSCGallery:
 
     def __init__(
         self,
-        artifact_path: aiopath.AsyncPath,
-        installers_path: aiopath.AsyncPath,
-        extensions_path: aiopath.AsyncPath,
+        artifact_path: anyio.Path,
+        installers_path: anyio.Path,
+        extensions_path: anyio.Path,
         interval: int = 3600,
     ) -> None:
-        self.extensions: Dict[str, Any] = {}
+        self.extensions: dict[str, Any] = {}
         self.interval: int = interval
         self.artifact_path = artifact_path
         self.installers_path = installers_path
@@ -72,6 +93,7 @@ class VSCGallery:
     async def update_state_watcher(self) -> None:
         while True:
             await self.update_state()
+            # can't use log here - doesn't show up due to not in fastapi logger context
             print(f"Finished extension check. Will check again in {self.interval} seconds")
             await asyncio.sleep(self.interval)
 
@@ -128,7 +150,7 @@ class VSCGallery:
         log.info(f"Loaded {len(self.extensions)} extensions in {time.time() - start}")
 
     @staticmethod
-    async def process_loaded_extension(extension: Dict[str, Any], extensiondir: aiopath.AsyncPath) -> Dict[str, Any]:
+    async def process_loaded_extension(extension: dict[str, Any], extensiondir: anyio.Path) -> dict[str, Any]:
         # Repoint asset urls
         for version in extension["versions"]:
             if "targetPlatform" in version and version["targetPlatform"]:
@@ -154,7 +176,7 @@ class VSCGallery:
         return extension
 
     @staticmethod
-    def _sort(result: List[Dict[str, Any]], sortby: int, sortorder: int) -> None:
+    def _sort(result: list[dict[str, Any]], sortby: int, sortorder: int) -> None:
         # NOTE: modifies result in place
         rev = sortorder == utils.SortOrder.Ascending
 
@@ -180,7 +202,7 @@ class VSCGallery:
             rev = not rev
             result.sort(key=lambda k: k["displayName"], reverse=rev)
 
-    def _apply_criteria(self, criteria: List[Dict[str, Any]]):
+    def _apply_criteria(self, criteria: list[dict[str, Any]]):
         # `self.extensions` may be modified by the update thread while this
         # function is executing so we need to operate on a copy
         extensions = self.extensions.copy()
@@ -235,7 +257,7 @@ class VSCGallery:
         return result
 
     @staticmethod
-    def _build_response(resultingExtensions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _build_response(resultingExtensions: list[dict[str, Any]]) -> dict[str, Any]:
         return {
             "results": [
                 {

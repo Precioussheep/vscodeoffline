@@ -6,12 +6,11 @@ import hashlib
 import logging as log
 from typing import Any
 
-import aiofiles
-import aiopath
+import anyio
 import orjson
 
 
-async def async_load_json(filepath: aiopath.AsyncPath) -> list[Any] | dict[str, Any]:
+async def async_load_json(filepath: anyio.Path) -> list[Any] | dict[str, Any]:
     # technically this could be just filepath = pathlib.Path(filepath)
     # because wrapping a path will still return the same path
     result = []
@@ -22,9 +21,9 @@ async def async_load_json(filepath: aiopath.AsyncPath) -> list[Any] | dict[str, 
         log.debug(f"Cannot load json at path {await filepath.absolute()}. It is a directory")
         return result
 
-    async with aiofiles.open(filepath, "rb") as fp:
+    async with await anyio.open_file(filepath, "rb") as fl:
         try:
-            result = orjson.loads(await fp.read())
+            result = orjson.loads(await fl.read())
             if not result:
                 return []
         except orjson.JSONDecodeError as err:
@@ -33,9 +32,7 @@ async def async_load_json(filepath: aiopath.AsyncPath) -> list[Any] | dict[str, 
     return result
 
 
-async def async_first_file(
-    filepath: aiopath.AsyncPath, pattern: str, reverse: bool = False
-) -> aiopath.AsyncPath | None:
+async def async_first_file(filepath: anyio.Path, pattern: str, reverse: bool = False) -> anyio.Path | None:
     # 3 cases:
     # no results
     # only one result - order doesn't matter
@@ -48,7 +45,7 @@ async def async_first_file(
     return results[0]
 
 
-async def async_hash_file_and_check(filepath: aiopath.AsyncPath, expectedchecksum: str) -> bool:
+async def async_hash_file_and_check(filepath: anyio.Path, expectedchecksum: str) -> bool:
     """
     Hashes a file and checks for the expected checksum.
 
@@ -59,15 +56,3 @@ async def async_hash_file_and_check(filepath: aiopath.AsyncPath, expectedchecksu
         for chunk in iter(lambda: fp.read(4096), b""):
             h.update(chunk)
     return expectedchecksum == h.hexdigest()
-
-
-# slow due to pathlib rather than os.scandir
-async def async_folders_in_folder(
-    filepath: aiopath.AsyncPath,
-) -> list[aiopath.AsyncPath]:
-    return [d async for d in filepath.iterdir() if await d.is_dir()]
-
-
-# slow due to pathlib rather than os.scandir
-async def async_files_in_folder(filepath: aiopath.AsyncPath) -> list[aiopath.AsyncPath]:
-    return [f async for f in filepath.iterdir() if await f.is_file()]

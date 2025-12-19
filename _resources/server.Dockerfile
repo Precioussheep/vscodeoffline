@@ -29,10 +29,10 @@ ENV PATH="/opt/venv/bin:$PATH" \
 COPY ./vscoffline/vscgallery /app/vscgallery
 COPY ./vscoffline/server.py /app/server.py
 
-ADD https://cdn.jsdelivr.net/npm/swagger-ui-dist@4/swagger-ui-bundle.js /static/swagger-ui-bundle.js
-ADD https://cdn.jsdelivr.net/npm/swagger-ui-dist@4/swagger-ui.css /static/swagger-ui.css
+ADD https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js /static/swagger-ui-bundle.js
+ADD https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css /static/swagger-ui.css
 ADD https://fastapi.tiangolo.com/img/favicon.png /static/favicon.png
-ADD https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js /static/redoc.standalone.js
+ADD https://cdn.jsdelivr.net/npm/redoc/bundles/redoc.standalone.js /static/redoc.standalone.js
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=2 \
     CMD wget -O - http://$HOST:$PORT || exit 1
